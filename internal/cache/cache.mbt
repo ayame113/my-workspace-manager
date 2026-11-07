@@ -82,13 +82,19 @@ async fn clone_directory(source : String, destination : String) -> String {
 }
 
 ///|
-/// trash に移してからバックグラウンドで削除する。大きな node_modules の削除を待たないため。
-pub async fn discard_directory(directory : String) -> Unit {
-  let trash = "\{@layout.root()}/.cache/trash"
-  @fs.mkdir(trash, recursive=true, allow_exist=true)
-  let trashed = "\{trash}/\{@path.Path(directory).basename()}-\{unique_suffix()}"
-  @fs.rename(directory, trashed)
-  @sys.spawn_in_background("rm", ["-rf", trashed])
+/// trash に移してからバックグラウンドで削除する。大きな node_modules の削除を待たないため。無ければ何もしない。
+/// Ctrl-C などのキャンセル中の後始末からも呼ぶので、それ自体は中断されない。
+pub async fn discard_directory(directory : String) -> Unit nocancel {
+  @async.protect_from_cancel(() => {
+    if !@sys.exists(directory) {
+      return
+    }
+    let trash = "\{@layout.root()}/.cache/trash"
+    @fs.mkdir(trash, recursive=true, allow_exist=true)
+    let trashed = "\{trash}/\{@path.Path(directory).basename()}-\{unique_suffix()}"
+    @fs.rename(directory, trashed)
+    @sys.spawn_in_background("rm", ["-rf", trashed])
+  })
 }
 
 ///|
@@ -123,46 +129,44 @@ pub async fn register_in_cache(package_dir : String, key : String) -> Unit {
   @fs.mkdir(staging)
   // 登録元にも目印を置く。クローンでブロックが共有されるのでディスク消費は増えない
   write_marker(package_dir, key)
-  try {
-    ignore(
-      clone_directory("\{package_dir}/node_modules", "\{staging}/node_modules"),
-    )
-    let meta : Json = {
-      "key": Json::string(key),
-      "createdAt": Json::number(@env.now().to_double()),
-    }
-    @fs.write_text(
-      "\{staging}/meta.json",
-      meta.stringify(),
-      create_mode=CreateNew,
-    )
-    @fs.rename(staging, cache_entry_path(key))
-  } catch {
-    error => {
-      discard_directory(staging)
-      // 並行して同じキーが登録された場合は成功扱い
-      if !cache_has(key) {
-        raise error
-      }
-    }
+  stage_cache_entry(package_dir, staging, key) catch {
+    // 並行して同じキーが登録された場合は成功扱い
+    _ if cache_has(key) => ()
+    error => raise error
   }
+}
+
+///|
+async fn stage_cache_entry(
+  package_dir : String,
+  staging : String,
+  key : String,
+) -> Unit {
+  // 失敗やキャンセル(Ctrl-C)で作りかけのエントリを残さない
+  errdefer discard_directory(staging)
+  ignore(
+    clone_directory("\{package_dir}/node_modules", "\{staging}/node_modules"),
+  )
+  let meta : Json = {
+    "key": Json::string(key),
+    "createdAt": Json::number(@env.now().to_double()),
+  }
+  @fs.write_text(
+    "\{staging}/meta.json",
+    meta.stringify(),
+    create_mode=CreateNew,
+  )
+  @fs.rename(staging, cache_entry_path(key))
 }
 
 ///|
 /// `<package_dir>/node_modules` をキャッシュのクローンで置き換え、使った方法を返す。
 pub async fn place_from_cache(package_dir : String, key : String) -> String {
   let target = "\{package_dir}/node_modules"
-  if @sys.exists(target) {
-    discard_directory(target)
-  }
-  let cloning = clone_directory("\{cache_entry_path(key)}/node_modules", target) catch {
-    error => {
-      if @sys.exists(target) {
-        discard_directory(target)
-      }
-      raise error
-    }
-  }
+  discard_directory(target)
+  // 目印まで書き終える前に失敗・キャンセルしたら、作りかけの node_modules を残さない
+  errdefer discard_directory(target)
+  let cloning = clone_directory("\{cache_entry_path(key)}/node_modules", target)
   write_marker(package_dir, key)
   cloning
 }
@@ -206,8 +210,12 @@ pub async fn ensure_node_modules(
     )
   }
   let lock_hash = @sys.sha256_hex(lockfile)
-  let status = @sys.run_inheriting("npm", ["ci", ..npm_args], cwd=package_dir) catch {
-    _ => 1
+  let status = {
+    // npm ci は node_modules を作り直すので、キャンセル(Ctrl-C)で中断された作りかけは消してよい
+    errdefer discard_directory("\{package_dir}/node_modules")
+    @sys.run_inheriting("npm", ["ci", ..npm_args], cwd=package_dir) catch {
+      _ => 1
+    }
   }
   if status != 0 {
     return Err(if status > 0 { status } else { 1 })

@@ -7,7 +7,7 @@ import {
   "moonbitlang/core/async/process",
 } for "test"
 
-supported_targets = "-all+native"
+supported_targets = "native"
 
 options(
   "allow-experimental-packages": [
@@ -16,7 +16,3 @@ options(
     "moonbitlang/core/async/process",
   ],
 )
-
-// テストはキャンセルされないので、defer での後始末に protect_from_cancel は不要
-
-warnings = "-cancellable_defer"

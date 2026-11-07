@@ -4,7 +4,7 @@ import {
   "my-workspace-manager/ws/internal/cli",
 }
 
-supported_targets = "-all+native"
+supported_targets = "native"
 
 pkgtype(kind: "executable")
 

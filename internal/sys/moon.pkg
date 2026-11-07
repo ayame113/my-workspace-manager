@@ -7,7 +7,7 @@ import {
   "moonbitlang/x/crypto",
 }
 
-supported_targets = "-all+native"
+supported_targets = "native"
 
 options(
   "native-stub": [ "stub.c" ],

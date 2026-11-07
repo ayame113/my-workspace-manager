@@ -75,8 +75,8 @@ async fn Sandbox::new() -> Sandbox {
 }
 
 ///|
-async fn Sandbox::cleanup(self : Sandbox) -> Unit {
-  @fs.rmdir(self.root, recursive=true)
+async fn Sandbox::cleanup(self : Sandbox) -> Unit nocancel {
+  @async.protect_from_cancel(() => @fs.rmdir(self.root, recursive=true))
 }
 
 ///|

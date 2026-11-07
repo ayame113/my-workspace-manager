@@ -4,6 +4,8 @@ version = "0.1.0"
 
 readme = "README.md"
 
+repository = "https://github.com/ayame113/my-workspace-manager"
+
 license = "MIT"
 
 keywords = [ ]

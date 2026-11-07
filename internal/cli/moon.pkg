@@ -10,7 +10,11 @@ import {
   "my-workspace-manager/ws/internal/sys",
 }
 
-supported_targets = "-all+native"
+import {
+  "moonbitlang/core/debug",
+} for "wbtest"
+
+supported_targets = "native"
 
 options(
   "allow-experimental-packages": [ "moonbitlang/core/async/fs" ],

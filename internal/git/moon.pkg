@@ -3,4 +3,4 @@ import {
   "my-workspace-manager/ws/internal/sys",
 }
 
-supported_targets = "-all+native"
+supported_targets = "native"

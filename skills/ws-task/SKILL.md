@@ -9,14 +9,14 @@ description: タスク用の作業ディレクトリ(~/ws/tasks/<task>)の作成
 
 ## インストール
 
-[MoonBit ツールチェーン](https://www.moonbitlang.com/download/)(`moon`)が必要。
+前提条件とインストール方法の詳細はリポジトリの README.md を参照。
 
 ```
-moon install --path <このリポジトリ>/cmd/ws   # ~/.moon/bin/ws に入る
+moon install ./cmd/ws                                                      # clone 済みのリポジトリで
+moon install https://github.com/ayame113/my-workspace-manager.git cmd/ws   # clone せずに
 ```
 
-- `~/.moon/bin` を PATH に入れる。
-- 更新は、このリポジトリを `ws pull` などで最新にしてから同じコマンドで再インストールする。
+- `~/.moon/bin/ws` に入るので、`~/.moon/bin` を PATH に入れる。更新は同じコマンドを再実行する。
 - `ws` が見つからない場合、エージェントは自分でインストールせず、上記の手順をユーザーに案内する。
 
 ## エージェントの行動規則(最重要)

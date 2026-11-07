@@ -1,6 +1,7 @@
 import {
   "moonbitlang/core/env",
   "moonbitlang/core/path",
+  "moonbitlang/core/async",
   "moonbitlang/core/async/fs",
   "my-workspace-manager/ws/internal/errors",
   "my-workspace-manager/ws/internal/git",
@@ -8,12 +9,11 @@ import {
   "my-workspace-manager/ws/internal/sys",
 }
 
-supported_targets = "-all+native"
+supported_targets = "native"
 
 options(
-  "allow-experimental-packages": [ "moonbitlang/core/async/fs" ],
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/fs",
+  ],
 )
-
-// ws は async タスクをキャンセルしないので、catch での後始末で問題ない
-
-warnings = "-fragile_catch_all"

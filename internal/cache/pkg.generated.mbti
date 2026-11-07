@@ -10,7 +10,7 @@ pub async fn cache_has(String) -> Bool
 
 pub async fn compute_cache_key(String) -> String
 
-pub async fn discard_directory(String) -> Unit
+pub async fn discard_directory(String) -> Unit nocancel
 
 pub async fn ensure_node_modules(String, Array[String]) -> Result[String, Int32]
 
