@@ -1,0 +1,953 @@
+#!/usr/bin/env node
+import { spawn, spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { parseArgs } from 'node:util';
+
+const WS_ROOT = process.env.WS_ROOT || path.join(os.homedir(), 'ws');
+
+const USAGE = `usage:
+  ws new <task>
+  ws clone <url> [<repo>]
+  ws add [--task <task>] --repo <repo> --branch <branch> [--no-install]
+  ws add [--task <task>] --repo <repo> --branch <branch> --create --base <start-point> [--no-install]
+  ws add [--task <task>] --repo <repo> --branch <branch> --readonly [--no-install]
+  ws pull [--task <task>]
+  ws ls [--task <task> | --all]
+  ws npm ci [-- <npm ci の引数>]
+  ws lint [--task <task> | --all] [--fix]
+
+--create の短縮形は -c
+--task を省略するとカレントディレクトリが属する task を使う(--task . も同じ)
+`;
+
+class UsageError extends Error {}
+class WsError extends Error {}
+class GitError extends Error {}
+
+function runGit(args) {
+  const result = spawnSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  if (result.error) throw new WsError(`git を実行できません: ${result.error.message}`);
+  return { ok: result.status === 0, stdout: result.stdout.trim(), stderr: result.stderr };
+}
+
+function git(args) {
+  const result = runGit(args);
+  if (!result.ok) throw new GitError(result.stderr);
+  return result.stdout;
+}
+
+function gitSucceeds(args) {
+  return runGit(args).ok;
+}
+
+function branchSlug(branch) {
+  return branch
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-/, '')
+    .replace(/-$/, '');
+}
+
+function slugOrThrow(branch) {
+  if (branch.startsWith('-')) throw new WsError(`ブランチ名が '-' で始まっています: '${branch}'`);
+  const slug = branchSlug(branch);
+  if (slug === '') throw new WsError(`ブランチ名 '${branch}' から slug を作れません`);
+  return slug;
+}
+
+function validateTaskName(task) {
+  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(task)) {
+    throw new WsError(`task 名は [a-z0-9-] のみ(先頭末尾・連続ハイフン不可): '${task}'`);
+  }
+}
+
+function validateRepoName(repo) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(repo) || repo.includes('--')) {
+    throw new WsError(`repo 名が不正です('--' を含まず英数字 . _ - のみ): '${repo}'`);
+  }
+}
+
+const taskDir = (task) => path.join(WS_ROOT, 'tasks', task);
+const barePath = (repo) => path.join(WS_ROOT, 'repos', `${repo}.git`);
+
+function taskFromCurrentDirectory() {
+  const tasksRoot = path.join(WS_ROOT, 'tasks');
+  const outside = new WsError(`カレントディレクトリが ${tasksRoot}/<task>/ 配下ではありません`);
+  if (!fs.existsSync(tasksRoot)) throw outside;
+  const relative = path.relative(fs.realpathSync(tasksRoot), fs.realpathSync(process.cwd()));
+  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) throw outside;
+  return relative.split(path.sep)[0];
+}
+
+function resolveExistingTask(taskOption, hintWhenOutside) {
+  let task = taskOption;
+  if (taskOption === undefined || taskOption === '.') {
+    try {
+      task = taskFromCurrentDirectory();
+    } catch (error) {
+      if (!(error instanceof WsError) || taskOption !== undefined) throw error;
+      throw new WsError(`${error.message}。${hintWhenOutside}`);
+    }
+  }
+  validateTaskName(task);
+  if (!fs.existsSync(taskDir(task))) {
+    throw new WsError(`task '${task}' がありません。先に 'ws new ${task}' を実行してください`);
+  }
+  return task;
+}
+
+function requireBare(repo) {
+  validateRepoName(repo);
+  const bare = barePath(repo);
+  if (!fs.existsSync(bare)) {
+    throw new WsError(
+      `bare repo '${repo}' がありません。別ターミナルで次を実行してください:\n  ~/ws/bin/ws clone <url> ${repo}`,
+    );
+  }
+  applyRepoConfig(bare);
+  return bare;
+}
+
+function refuseInsideAgent(what) {
+  // ssh 鍵のパスフレーズ入力待ちでエージェントがハングするのを防ぐ
+  if (process.env.CLAUDECODE) {
+    throw new WsError(
+      `${what} は ssh のパスフレーズ入力が必要なため、エージェントからは実行できません。` +
+        'ユーザーに別のターミナルで実行してもらってください',
+    );
+  }
+}
+
+function applyRepoConfig(bare) {
+  // 手で切ったブランチの upstream が base(origin/main 等)になると、エディタの push/sync で base に push してしまう
+  git(['-C', bare, 'config', 'branch.autoSetupMerge', 'simple']);
+}
+
+function parseCommandArgs(args, options, minPositionals, maxPositionals) {
+  let parsed;
+  try {
+    parsed = parseArgs({ args, options, allowPositionals: true, strict: true });
+  } catch {
+    throw new UsageError();
+  }
+  const count = parsed.positionals.length;
+  if (count < minPositionals || count > maxPositionals) throw new UsageError();
+  return parsed;
+}
+
+function refExists(bare, ref) {
+  return gitSucceeds(['-C', bare, 'show-ref', '--verify', '--quiet', ref]);
+}
+
+function isDirty(worktree) {
+  return git(['-C', worktree, 'status', '--porcelain']) !== '';
+}
+
+function currentBranch(worktree) {
+  const result = runGit(['-C', worktree, 'symbolic-ref', '-q', '--short', 'HEAD']);
+  return result.ok ? result.stdout : null;
+}
+
+function describeHead(worktree) {
+  return currentBranch(worktree) ?? `detached@${git(['-C', worktree, 'rev-parse', '--short', 'HEAD'])}`;
+}
+
+function isWorktree(dir) {
+  return fs.existsSync(path.join(dir, '.git'));
+}
+
+function listWorktreeNames(dir) {
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .values()
+    .filter((entry) => entry.isDirectory() && isWorktree(path.join(dir, entry.name)))
+    .map((entry) => entry.name)
+    .toArray()
+    .toSorted();
+}
+
+function cmdNew(args) {
+  const [task] = parseCommandArgs(args, {}, 1, 1).positionals;
+  validateTaskName(task);
+  const dir = taskDir(task);
+  if (fs.existsSync(dir)) {
+    console.log(`task '${task}' は既に存在します: ${dir}`);
+    return;
+  }
+  fs.mkdirSync(dir, { recursive: true });
+  console.log(`作成しました: ${dir}`);
+}
+
+function cmdClone(args) {
+  refuseInsideAgent('ws clone');
+  const [url, repoArg] = parseCommandArgs(args, {}, 1, 2).positionals;
+  const repo = repoArg !== undefined ? repoArg : path.basename(url.replace(/\/+$/, '')).replace(/\.git$/, '');
+  if (repo === '') throw new WsError('URL から repo 名を導出できません');
+  validateRepoName(repo);
+  const bare = barePath(repo);
+  if (fs.existsSync(bare)) throw new WsError(`${bare} は既に存在します`);
+  fs.mkdirSync(path.join(WS_ROOT, 'repos'), { recursive: true });
+  // git clone --bare はリモートの全ブランチをローカルブランチ化し、add の「ローカルブランチ存在判定」を狂わせる
+  git(['init', '--quiet', '--bare', bare]);
+  applyRepoConfig(bare);
+  git(['-C', bare, 'remote', 'add', 'origin', url]);
+  git(['-C', bare, 'config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*']);
+  git(['-C', bare, 'fetch', '--quiet', 'origin']);
+  console.log(`作成しました: ${bare}`);
+}
+
+function missingRemoteBranchError(branch) {
+  return new WsError(
+    `ローカルに '${branch}' も 'origin/${branch}' もありません。` +
+      'リモートにあるはずなら、別ターミナルで ws pull --task <task> か git fetch が必要です。' +
+      '新規ブランチなら --branch <branch> --create --base <start-point> を使ってください',
+  );
+}
+
+function cmdAdd(args) {
+  const { values } = parseCommandArgs(
+    args,
+    {
+      task: { type: 'string' },
+      repo: { type: 'string' },
+      branch: { type: 'string' },
+      create: { type: 'boolean', short: 'c' },
+      base: { type: 'string' },
+      readonly: { type: 'boolean' },
+      'no-install': { type: 'boolean' },
+    },
+    0,
+    0,
+  );
+  const creating = values.create === true;
+  const base = values.base;
+  if (values.repo === undefined || values.branch === undefined) throw new UsageError();
+  if (creating !== (base !== undefined)) throw new UsageError();
+  if (values.readonly && creating) throw new UsageError();
+
+  const { repo, branch } = values;
+  const task = resolveExistingTask(values.task, '--task <task> を指定してください');
+  const bare = requireBare(repo);
+  const slug = slugOrThrow(branch);
+  const dir = values.readonly ? path.join(taskDir(task), '_readonly') : taskDir(task);
+  const worktree = path.join(dir, `${repo}--${slug}`);
+
+  if (values.readonly) {
+    if (!refExists(bare, `refs/remotes/origin/${branch}`)) throw missingRemoteBranchError(branch);
+    fs.mkdirSync(dir, { recursive: true });
+    git(['-C', bare, 'worktree', 'add', '--detach', worktree, `origin/${branch}`]);
+  } else if (creating) {
+    if (base.startsWith('-')) throw new WsError(`--base が '-' で始まっています: '${base}'`);
+    if (refExists(bare, `refs/heads/${branch}`)) throw new WsError(`ローカルブランチ '${branch}' は既に存在します`);
+    // 解決できない名前を渡すと git worktree add は -b を無視し、origin の同名ブランチをローカルに作ってしまう
+    if (!gitSucceeds(['-C', bare, 'rev-parse', '--verify', '--quiet', `${base}^{commit}`])) {
+      throw new WsError(`--base '${base}' を解決できません(origin/main のように明示してください)`);
+    }
+    git(['-C', bare, 'worktree', 'add', '--no-track', '-b', branch, worktree, base]);
+  } else if (refExists(bare, `refs/heads/${branch}`)) {
+    git(['-C', bare, 'worktree', 'add', worktree, branch]);
+  } else if (refExists(bare, `refs/remotes/origin/${branch}`)) {
+    git(['-C', bare, 'worktree', 'add', '--track', '-b', branch, worktree, `origin/${branch}`]);
+  } else {
+    throw missingRemoteBranchError(branch);
+  }
+  console.log(`作成しました: ${worktree}`);
+  if (values['no-install']) return 0;
+  return installNodeModulesInWorktree(worktree) === 0 ? 0 : 1;
+}
+
+function remoteBranchesMatchingSlug(bare, slug) {
+  return git(['-C', bare, 'for-each-ref', '--format=%(refname:strip=3)', 'refs/remotes/origin/'])
+    .split('\n')
+    .values()
+    .filter((name) => name !== '' && name !== 'HEAD' && branchSlug(name) === slug)
+    .toArray();
+}
+
+function isAncestor(worktree, ancestor, descendant) {
+  return gitSucceeds(['-C', worktree, 'merge-base', '--is-ancestor', ancestor, descendant]);
+}
+
+function updateReadonlyWorktree(bare, worktree, slug) {
+  if (isDirty(worktree)) return { status: 'skipped', detail: '未コミット変更あり' };
+  const matches = remoteBranchesMatchingSlug(bare, slug);
+  if (matches.length !== 1) {
+    return { status: 'error', detail: `slug に一致する origin ブランチが ${matches.length} 件: ${matches.join(' ')}` };
+  }
+  const target = `origin/${matches[0]}`;
+  const before = git(['-C', worktree, 'rev-parse', 'HEAD']);
+  if (before === git(['-C', worktree, 'rev-parse', target])) return { status: 'up-to-date', detail: target };
+  git(['-C', worktree, 'checkout', '--quiet', '--detach', target]);
+  return { status: 'updated', detail: `${target} (${git(['-C', worktree, 'rev-parse', '--short', 'HEAD'])})` };
+}
+
+function updateWorkWorktree(worktree) {
+  const branch = currentBranch(worktree);
+  if (branch === null) return { status: 'skipped', detail: 'detached HEAD' };
+  if (isDirty(worktree)) return { status: 'skipped', detail: '未コミット変更あり' };
+  const upstream = runGit(['-C', worktree, 'rev-parse', '--verify', '--quiet', '@{upstream}']);
+  if (!upstream.ok) return { status: 'skipped', detail: 'upstream なし' };
+  const head = git(['-C', worktree, 'rev-parse', 'HEAD']);
+  if (head === upstream.stdout) return { status: 'up-to-date', detail: branch };
+  if (isAncestor(worktree, upstream.stdout, head)) {
+    return { status: 'up-to-date', detail: `${branch} (upstream より先行)` };
+  }
+  if (!isAncestor(worktree, head, upstream.stdout)) {
+    return { status: 'skipped', detail: `${branch} は upstream と分岐しています(fast-forward 不可)` };
+  }
+  git(['-C', worktree, 'merge', '--quiet', '--ff-only', '@{upstream}']);
+  return { status: 'updated', detail: `${branch} (${git(['-C', worktree, 'rev-parse', '--short', 'HEAD'])})` };
+}
+
+function repoOf(name) {
+  const separator = name.indexOf('--');
+  return separator < 0 ? name : name.slice(0, separator);
+}
+
+function cmdPull(args) {
+  refuseInsideAgent('ws pull');
+  const { values } = parseCommandArgs(args, { task: { type: 'string' } }, 0, 0);
+  const task = resolveExistingTask(values.task, '--task <task> を指定してください');
+  const dir = taskDir(task);
+  const entries = [
+    ...listWorktreeNames(dir)
+      .values()
+      .map((name) => ({ kind: 'work', name, worktree: path.join(dir, name) })),
+    ...listWorktreeNames(path.join(dir, '_readonly'))
+      .values()
+      .map((name) => ({ kind: 'ro', name, worktree: path.join(dir, '_readonly', name) })),
+  ];
+  if (entries.length === 0) {
+    console.log('worktree はありません');
+    return 0;
+  }
+
+  const fetchFailures = new Map();
+  for (const repo of new Set(entries.values().map((entry) => repoOf(entry.name)))) {
+    try {
+      const bare = requireBare(repo);
+      git(['-C', bare, 'fetch', '--quiet', 'origin', '--prune']);
+    } catch (error) {
+      if (!(error instanceof WsError || error instanceof GitError)) throw error;
+      fetchFailures.set(repo, error.message.trim());
+    }
+  }
+
+  const results = entries.map((entry) => {
+    const repo = repoOf(entry.name);
+    if (fetchFailures.has(repo)) return { ...entry, status: 'error', detail: fetchFailures.get(repo) };
+    try {
+      const outcome =
+        entry.kind === 'ro'
+          ? updateReadonlyWorktree(barePath(repo), entry.worktree, entry.name.slice(repo.length + 2))
+          : updateWorkWorktree(entry.worktree);
+      return { ...entry, ...outcome };
+    } catch (error) {
+      if (!(error instanceof WsError || error instanceof GitError)) throw error;
+      return { ...entry, status: 'error', detail: error.message.trim() };
+    }
+  });
+
+  for (const result of results) {
+    console.log(`${result.kind.padEnd(5)} ${result.name.padEnd(55)} ${result.status.padEnd(10)} ${result.detail}`);
+  }
+  return results.values().some((result) => result.status === 'error') ? 1 : 0;
+}
+
+
+const CACHE_ROOT = path.join(WS_ROOT, '.cache');
+const NODE_MODULES_CACHE_ROOT = path.join(CACHE_ROOT, 'node_modules');
+const TRASH_ROOT = path.join(CACHE_ROOT, 'trash');
+const CACHE_KEY_MARKER = '.ws-cache-key';
+
+const CLONEFILE_PYTHON = [
+  'import ctypes, os, sys',
+  'libc = ctypes.CDLL(None, use_errno=True)',
+  'ok = libc.clonefile(os.fsencode(sys.argv[1]), os.fsencode(sys.argv[2]), 0) == 0',
+  'sys.exit(0 if ok else (ctypes.get_errno() or 1))',
+].join('\n');
+
+function uniqueSuffix() {
+  return `${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function sha256OfFile(file) {
+  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
+// ws 自身が nodenv 経由で起動されると、起動した node のバージョン別 bin が PATH の先頭に、起動時の cwd が NODENV_DIR に、
+// 解決済みバージョンが NODENV_VERSION に入った状態で継承される(nodenv exec が export する)。
+// そのままでは子プロセスの node/npm が .node-version ではなく ws と同じ版になる。PWD も spawn の cwd には追従しない
+function environmentFor(directory) {
+  const environment = { ...process.env, PWD: directory };
+  delete environment.NODENV_DIR;
+  delete environment.NODENV_VERSION;
+  const versionsRoot = environment.NODENV_ROOT ? path.join(environment.NODENV_ROOT, 'versions') + path.sep : null;
+  if (versionsRoot !== null && environment.PATH) {
+    environment.PATH = environment.PATH.split(path.delimiter)
+      .values()
+      .filter((entry) => !entry.startsWith(versionsRoot))
+      .toArray()
+      .join(path.delimiter);
+  }
+  return environment;
+}
+
+const cacheKeyByPackageDir = new Map();
+
+function computeCacheKey(packageDir) {
+  if (cacheKeyByPackageDir.has(packageDir)) return cacheKeyByPackageDir.get(packageDir);
+  // nodenv がそのディレクトリの .node-version で node を選ぶため、ABI は ws 自身ではなく対象ディレクトリの node から取る
+  const probe = spawnSync(
+    'node',
+    ['-p', "[process.versions.modules, process.platform, process.arch].join('-')"],
+    { cwd: packageDir, env: environmentFor(packageDir), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+  );
+  if (probe.error || probe.status !== 0) {
+    throw new WsError(`${packageDir} で node を実行できません: ${probe.error ? probe.error.message : probe.stderr.trim()}`);
+  }
+  const lockHash = sha256OfFile(path.join(packageDir, 'package-lock.json'));
+  const key = `${lockHash}-abi${probe.stdout.trim()}`;
+  cacheKeyByPackageDir.set(packageDir, key);
+  return key;
+}
+
+function cacheEntryPath(key) {
+  return path.join(NODE_MODULES_CACHE_ROOT, key);
+}
+
+function cacheHas(key) {
+  return fs.existsSync(path.join(cacheEntryPath(key), 'meta.json'));
+}
+
+function cloneDirectory(source, destination) {
+  const clonefile = spawnSync('/usr/bin/python3', ['-I', '-c', CLONEFILE_PYTHON, source, destination], {
+    stdio: 'ignore',
+  });
+  if (!clonefile.error && clonefile.status === 0) return 'clonefile';
+  fs.rmSync(destination, { recursive: true, force: true });
+  const copy = spawnSync('cp', ['-cR', source, destination], { stdio: 'ignore' });
+  if (!copy.error && copy.status === 0) return 'cp -cR';
+  throw new WsError(`${source} を ${destination} に複製できません`);
+}
+
+function discardDirectory(directory) {
+  fs.mkdirSync(TRASH_ROOT, { recursive: true });
+  const trashed = path.join(TRASH_ROOT, `${path.basename(directory)}-${uniqueSuffix()}`);
+  fs.renameSync(directory, trashed);
+  spawn('rm', ['-rf', trashed], { detached: true, stdio: 'ignore' }).unref();
+}
+
+function readMarker(packageDir) {
+  try {
+    return fs.readFileSync(path.join(packageDir, 'node_modules', CACHE_KEY_MARKER), 'utf8').trim();
+  } catch {
+    return null;
+  }
+}
+
+function writeMarker(packageDir, key) {
+  if (readMarker(packageDir) !== key) {
+    fs.writeFileSync(path.join(packageDir, 'node_modules', CACHE_KEY_MARKER), key);
+  }
+}
+
+function registerInCache(packageDir, key) {
+  if (cacheHas(key)) return false;
+  fs.mkdirSync(NODE_MODULES_CACHE_ROOT, { recursive: true });
+  const staging = path.join(NODE_MODULES_CACHE_ROOT, `.tmp-${uniqueSuffix()}`);
+  fs.mkdirSync(staging);
+  // 登録元にも目印を置く。クローンでブロックが共有されるのでディスク消費は増えない
+  writeMarker(packageDir, key);
+  try {
+    cloneDirectory(path.join(packageDir, 'node_modules'), path.join(staging, 'node_modules'));
+    fs.writeFileSync(path.join(staging, 'meta.json'), JSON.stringify({ key, createdAt: new Date().toISOString() }));
+    fs.renameSync(staging, cacheEntryPath(key));
+  } catch (error) {
+    discardDirectory(staging);
+    if (cacheHas(key)) return false;
+    throw error;
+  }
+  return true;
+}
+
+function placeFromCache(packageDir, key) {
+  const target = path.join(packageDir, 'node_modules');
+  if (fs.existsSync(target)) discardDirectory(target);
+  let method;
+  try {
+    method = cloneDirectory(path.join(cacheEntryPath(key), 'node_modules'), target);
+  } catch (error) {
+    if (fs.existsSync(target)) discardDirectory(target);
+    throw error;
+  }
+  writeMarker(packageDir, key);
+  return method;
+}
+
+function findPackageDir(startDirectory) {
+  let directory = startDirectory;
+  for (;;) {
+    if (fs.existsSync(path.join(directory, 'package.json'))) return directory;
+    const parent = path.dirname(directory);
+    if (parent === directory) throw new WsError('package.json が見つかりません');
+    directory = parent;
+  }
+}
+
+function ensureNodeModules(packageDir, npmArgs) {
+  if (!fs.existsSync(path.join(packageDir, 'package-lock.json'))) {
+    throw new WsError(`${packageDir} に package-lock.json がありません`);
+  }
+  // 追加引数(--omit=dev 等)は node_modules の中身を変えうるので、キャッシュの利用も登録もしない
+  const useCache = npmArgs.length === 0;
+  const key = useCache ? computeCacheKey(packageDir) : null;
+  if (useCache && cacheHas(key)) {
+    const method = placeFromCache(packageDir, key);
+    return { ok: true, message: `キャッシュから復元しました (${method}): ${packageDir}` };
+  }
+  const lockHashBefore = sha256OfFile(path.join(packageDir, 'package-lock.json'));
+  const install = spawnSync('npm', ['ci', ...npmArgs], {
+    cwd: packageDir,
+    env: environmentFor(packageDir),
+    stdio: 'inherit',
+  });
+  if (install.error || install.status !== 0) {
+    return { ok: false, message: `npm ci に失敗しました: ${packageDir}`, code: install.status ?? 1 };
+  }
+  const lockUnchanged = sha256OfFile(path.join(packageDir, 'package-lock.json')) === lockHashBefore;
+  if (useCache && lockUnchanged && fs.existsSync(path.join(packageDir, 'node_modules'))) {
+    registerInCache(packageDir, key);
+    return { ok: true, message: `npm ci を実行しキャッシュに登録しました: ${packageDir}` };
+  }
+  return { ok: true, message: `npm ci を実行しました: ${packageDir}` };
+}
+
+function lockfileDirectories(worktree) {
+  return git(['-C', worktree, 'ls-files', '-z'])
+    .split('\0')
+    .values()
+    .filter((file) => path.basename(file) === 'package-lock.json' && !file.split('/').includes('node_modules'))
+    .map((file) => path.join(worktree, path.dirname(file)))
+    .toArray()
+    .toSorted();
+}
+
+function installNodeModulesInWorktree(worktree) {
+  let failed = 0;
+  for (const packageDir of lockfileDirectories(worktree)) {
+    try {
+      const result = ensureNodeModules(packageDir, []);
+      if (result.ok) {
+        console.log(result.message);
+        continue;
+      }
+      failed += 1;
+      console.error(`warn: ${result.message}\n  再実行: cd ${packageDir} && ~/ws/bin/ws npm ci`);
+    } catch (error) {
+      if (!(error instanceof WsError || error instanceof GitError)) throw error;
+      failed += 1;
+      console.error(`warn: ${error.message.trim()}\n  再実行: cd ${packageDir} && ~/ws/bin/ws npm ci`);
+    }
+  }
+  return failed;
+}
+
+function cmdNpm(args) {
+  if (args[0] !== 'ci') throw new UsageError();
+  const rest = args.slice(1);
+  const separator = rest.indexOf('--');
+  const own = separator < 0 ? rest : rest.slice(0, separator);
+  const npmArgs = separator < 0 ? [] : rest.slice(separator + 1);
+  parseCommandArgs(own, {}, 0, 0);
+  const result = ensureNodeModules(findPackageDir(fs.realpathSync(process.cwd())), npmArgs);
+  if (result.ok) {
+    console.log(result.message);
+    return 0;
+  }
+  console.error(result.message);
+  return result.code;
+}
+
+const TASK_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+function parseWorktreeName(name) {
+  const separator = name.indexOf('--');
+  if (separator < 1) return null;
+  const repo = name.slice(0, separator);
+  const slug = name.slice(separator + 2);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(repo) || !TASK_NAME_PATTERN.test(slug)) return null;
+  return { repo, slug };
+}
+
+function realpathOrNull(target) {
+  try {
+    return fs.realpathSync(target);
+  } catch {
+    return null;
+  }
+}
+
+function subdirectoryNames(directory) {
+  return fs
+    .readdirSync(directory, { withFileTypes: true })
+    .values()
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .toArray()
+    .toSorted();
+}
+
+function readGitdir(worktree) {
+  const gitPath = path.join(worktree, '.git');
+  if (!fs.existsSync(gitPath)) return { problem: '.git がありません' };
+  if (fs.statSync(gitPath).isDirectory()) return { problem: '.git がディレクトリです(worktree ではなく独立した repo)' };
+  const match = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(gitPath, 'utf8'));
+  if (match === null) return { problem: '.git ファイルの内容が不正です' };
+  const gitdir = match[1].trim();
+  if (!fs.existsSync(gitdir)) return { problem: `gitdir が存在しません: ${gitdir}` };
+  if (!gitSucceeds(['-C', worktree, 'rev-parse', '--git-dir'])) return { problem: 'git が worktree として認識しません' };
+  return { gitdir };
+}
+
+function readPackages(file) {
+  return JSON.parse(fs.readFileSync(file, 'utf8')).packages ?? {};
+}
+
+function packageIdentity(entry) {
+  // file: の resolved は記録場所(lockfile と node_modules/.package-lock.json)からの相対パスなので、同じ依存でも値が異なる
+  const resolved = typeof entry.resolved === 'string' && entry.resolved.startsWith('file:') ? null : entry.resolved;
+  return JSON.stringify([entry.version, resolved, entry.integrity, entry.link === true]);
+}
+
+// node_modules/.package-lock.json は npm 自身が書く「実際にインストールした内容」の記録。
+// dev/peer などの付随フィールドは npm が lockfile と異なる形で書くことがあるため、同一性を表すフィールドだけを比べる
+function nodeModulesMatchesLockfile(packageDir) {
+  const hiddenPath = path.join(packageDir, 'node_modules', '.package-lock.json');
+  if (!fs.existsSync(hiddenPath)) return false;
+  let lockPackages;
+  let installedPackages;
+  try {
+    lockPackages = readPackages(path.join(packageDir, 'package-lock.json'));
+    installedPackages = readPackages(hiddenPath);
+  } catch {
+    return false;
+  }
+  for (const [name, entry] of Object.entries(installedPackages)) {
+    if (name === '') continue;
+    if (!(name in lockPackages) || packageIdentity(lockPackages[name]) !== packageIdentity(entry)) return false;
+  }
+  for (const [name, entry] of Object.entries(lockPackages)) {
+    // node_modules 外の link 先や、現在のプラットフォームでは入らない optional は実際には配置されない
+    if (name === '' || !name.includes('node_modules/') || entry.optional === true) continue;
+    if (!(name in installedPackages)) return false;
+  }
+  return true;
+}
+
+function lintIssue(task, worktree, kind, message, fixDescription, action) {
+  return { task, worktree, kind, message, fixDescription, action };
+}
+
+function lintNodeModules(context, task, worktreeLabel, worktree) {
+  for (const packageDir of lockfileDirectories(worktree)) {
+    const where = path.relative(worktree, packageDir) || '.';
+    const marker = readMarker(packageDir);
+    if (marker !== null) context.referencedKeys.add(marker);
+    const rerun = `手動対応: cd ${packageDir} && ~/ws/bin/ws npm ci`;
+    if (!fs.existsSync(path.join(packageDir, 'node_modules'))) {
+      context.issues.push(lintIssue(task, worktreeLabel, 'node_modules', `${where}: node_modules がありません`, rerun, null));
+      continue;
+    }
+    if (!nodeModulesMatchesLockfile(packageDir)) {
+      context.issues.push(
+        lintIssue(task, worktreeLabel, 'node_modules', `${where}: node_modules が package-lock.json と一致しません`, rerun, null),
+      );
+      continue;
+    }
+    let key;
+    try {
+      key = computeCacheKey(packageDir);
+    } catch (error) {
+      if (!(error instanceof WsError)) throw error;
+      context.issues.push(lintIssue(task, worktreeLabel, 'node_modules', `${where}: ${error.message.trim()}`, '手動対応: node のバージョン設定(nodenv)を確認する', null));
+      continue;
+    }
+    if (marker === key) continue;
+    const reason = marker === null ? '共有キャッシュ未使用' : '目印のキーが古い';
+    context.issues.push(
+      lintIssue(
+        task,
+        worktreeLabel,
+        'node_modules',
+        `${where}: 置き換え可能(${reason})`,
+        'キャッシュにあればクローンに置換、無ければ登録して目印を置く(実行中のプロセスがあると壊れる)',
+        () => {
+          const currentKey = computeCacheKey(packageDir);
+          if (cacheHas(currentKey)) placeFromCache(packageDir, currentKey);
+          else registerInCache(packageDir, currentKey);
+        },
+      ),
+    );
+  }
+}
+
+function lintWorktree(context, task, directory, name, kind) {
+  const label = kind === 'ro' ? `_readonly/${name}` : name;
+  const parsed = parseWorktreeName(name);
+  if (parsed === null) {
+    context.issues.push(
+      lintIssue(task, label, 'naming', '`<repo>--<slug>` 形式のディレクトリ名ではありません', '手動対応: 名前を確認し、不要なら削除', null),
+    );
+    context.unscannable += 1;
+    return;
+  }
+  const { gitdir, problem } = readGitdir(directory);
+  if (problem !== undefined) {
+    context.issues.push(lintIssue(task, label, 'broken-worktree', problem, '手動対応: 不要なら削除し、必要なら ws add で作り直す', null));
+    context.unscannable += 1;
+    return;
+  }
+  const actualBare = realpathOrNull(path.dirname(path.dirname(gitdir)));
+  const expectedBare = realpathOrNull(barePath(parsed.repo));
+  if (actualBare === null || actualBare !== expectedBare) {
+    context.issues.push(
+      lintIssue(
+        task,
+        label,
+        'naming',
+        `repo 部分 '${parsed.repo}' と実際の bare repo(${actualBare ?? '不明'})が一致しません`,
+        '手動対応: ディレクトリ名を実際の repo に合わせる',
+        null,
+      ),
+    );
+  }
+
+  const branch = currentBranch(directory);
+  if (kind === 'work') {
+    if (branch === null) {
+      context.issues.push(
+        lintIssue(task, label, 'dir-branch-mismatch', 'detached HEAD です(作業用 worktree はブランチ固定)', '手動対応: ブランチを checkout する', null),
+      );
+    } else {
+      if (branchSlug(branch) !== parsed.slug) {
+        context.issues.push(
+          lintIssue(task, label, 'dir-branch-mismatch', `現在のブランチ '${branch}' の slug が名前と異なります`, '手動対応: ブランチを戻すか worktree を作り直す', null),
+        );
+      }
+      const upstream = runGit(['-C', directory, 'rev-parse', '--abbrev-ref', '@{upstream}']);
+      if (upstream.ok && upstream.stdout !== `origin/${branch}`) {
+        context.issues.push(
+          lintIssue(
+            task,
+            label,
+            'upstream-mismatch',
+            `upstream が別名ブランチ '${upstream.stdout}' を指しています`,
+            'git branch --unset-upstream を実行',
+            () => git(['-C', directory, 'branch', '--unset-upstream']),
+          ),
+        );
+      }
+    }
+  } else {
+    if (branch !== null) {
+      context.issues.push(lintIssue(task, label, 'readonly', `ブランチ '${branch}' を checkout しています`, '手動対応: detached に戻す(git switch --detach)', null));
+    }
+    const unpushed = Number(git(['-C', directory, 'rev-list', '--count', 'HEAD', '--not', '--remotes=origin']));
+    if (unpushed > 0) {
+      context.issues.push(lintIssue(task, label, 'readonly', `origin に無いコミットが ${unpushed} 件あります`, '手動対応: 内容を確認する', null));
+    }
+    if (isDirty(directory)) {
+      context.issues.push(lintIssue(task, label, 'readonly', '未コミット変更があります', '手動対応: 内容を確認する', null));
+    }
+  }
+  lintNodeModules(context, task, label, directory);
+}
+
+function lintTask(context, task) {
+  const directory = taskDir(task);
+  if (!TASK_NAME_PATTERN.test(task)) {
+    context.issues.push(lintIssue(task, '-', 'naming', 'task 名が規則([a-z0-9-]、連続・先頭末尾ハイフン不可)に違反しています', '手動対応: task 名の変更はしない方針なので内容を確認する', null));
+  }
+  for (const name of subdirectoryNames(directory)) {
+    if (name !== '_readonly') {
+      lintWorktree(context, task, path.join(directory, name), name, 'work');
+      continue;
+    }
+    for (const readonlyName of subdirectoryNames(path.join(directory, name))) {
+      lintWorktree(context, task, path.join(directory, name, readonlyName), readonlyName, 'ro');
+    }
+  }
+}
+
+function lintDanglingRegistrations(context) {
+  const reposDir = path.join(WS_ROOT, 'repos');
+  if (!fs.existsSync(reposDir)) return;
+  const tasksRoot = path.join(WS_ROOT, 'tasks');
+  for (const entry of subdirectoryNames(reposDir)) {
+    const bare = path.join(reposDir, entry);
+    const listing = runGit(['-C', bare, 'worktree', 'list', '--porcelain']);
+    if (!listing.ok) continue;
+    const registered = listing.stdout
+      .split('\n')
+      .values()
+      .filter((line) => line.startsWith('worktree '))
+      .map((line) => line.slice('worktree '.length))
+      .drop(1)
+      .toArray();
+    for (const worktree of registered) {
+      if (fs.existsSync(worktree)) continue;
+      const relative = path.relative(tasksRoot, worktree);
+      const task = relative.startsWith('..') ? '-' : relative.split(path.sep)[0];
+      context.issues.push(
+        lintIssue(
+          task,
+          path.basename(worktree),
+          'broken-worktree',
+          `git に登録されていますがディレクトリがありません: ${worktree}`,
+          'git worktree prune を実行',
+          () => git(['-C', bare, 'worktree', 'prune']),
+        ),
+      );
+    }
+  }
+}
+
+function lintUnreferencedCaches(context) {
+  if (context.unscannable > 0 || !fs.existsSync(NODE_MODULES_CACHE_ROOT)) return;
+  for (const key of subdirectoryNames(NODE_MODULES_CACHE_ROOT)) {
+    if (key.startsWith('.') || context.referencedKeys.has(key)) continue;
+    context.issues.push(
+      lintIssue('-', key, 'unreferenced-cache', 'どの worktree の目印からも参照されていないキャッシュです', 'キャッシュを削除(trash 経由)', () =>
+        discardDirectory(cacheEntryPath(key)),
+      ),
+    );
+  }
+}
+
+function cmdLint(args) {
+  const { values } = parseCommandArgs(
+    args,
+    { task: { type: 'string' }, all: { type: 'boolean' }, fix: { type: 'boolean' } },
+    0,
+    0,
+  );
+  if (values.all && values.task !== undefined) throw new UsageError();
+  const fix = values.fix === true;
+  const tasksRoot = path.join(WS_ROOT, 'tasks');
+  const context = { issues: [], referencedKeys: new Set(), unscannable: 0 };
+
+  if (values.all) {
+    if (fs.existsSync(tasksRoot)) {
+      for (const task of subdirectoryNames(tasksRoot)) lintTask(context, task);
+    }
+    lintUnreferencedCaches(context);
+  } else {
+    lintTask(context, resolveExistingTask(values.task, '--task <task> か --all を指定してください'));
+  }
+  lintDanglingRegistrations(context);
+
+  if (context.issues.length === 0) {
+    console.log('問題はありません');
+    return 0;
+  }
+  if (fix) console.log('注意: --fix の node_modules 置換は、実行中のプロセス(dev server 等)があると壊れます\n');
+
+  let unresolved = 0;
+  for (const issue of context.issues) {
+    console.log(`[${issue.task}] ${issue.worktree}`);
+    console.log(`  種類: ${issue.kind}`);
+    console.log(`  内容: ${issue.message}`);
+    console.log(`  fix: ${issue.fixDescription}`);
+    if (!fix) {
+      unresolved += 1;
+    } else if (issue.action === null) {
+      console.log('  結果: 手動対応が必要です');
+      unresolved += 1;
+    } else {
+      try {
+        issue.action();
+        console.log('  結果: 修正しました');
+      } catch (error) {
+        if (!(error instanceof WsError || error instanceof GitError)) throw error;
+        console.log(`  結果: 修正に失敗しました: ${error.message.trim()}`);
+        unresolved += 1;
+      }
+    }
+  }
+  console.log(`\n${context.issues.length} 件の問題${fix ? `(未解決 ${unresolved} 件)` : ''}`);
+  return unresolved === 0 ? 0 : 1;
+}
+
+function printWorktrees(dir, kind) {
+  for (const name of listWorktreeNames(dir)) {
+    const worktree = path.join(dir, name);
+    const state = isDirty(worktree) ? 'dirty' : 'clean';
+    console.log(`${kind.padEnd(6)} ${name.padEnd(55)} ${describeHead(worktree).padEnd(45)} ${state}`);
+  }
+}
+
+function printTaskWorktrees(task) {
+  const dir = taskDir(task);
+  printWorktrees(dir, 'work');
+  printWorktrees(path.join(dir, '_readonly'), 'ro');
+}
+
+function cmdLs(args) {
+  const { values } = parseCommandArgs(args, { task: { type: 'string' }, all: { type: 'boolean' } }, 0, 0);
+  if (values.all && values.task !== undefined) throw new UsageError();
+  if (!values.all) {
+    printTaskWorktrees(resolveExistingTask(values.task, '--task <task> か --all を指定してください'));
+    return;
+  }
+  const tasksDir = path.join(WS_ROOT, 'tasks');
+  if (!fs.existsSync(tasksDir)) return;
+  for (const task of subdirectoryNames(tasksDir)) {
+    console.log(`[${task}]`);
+    printTaskWorktrees(task);
+  }
+}
+
+const commands = {
+  new: cmdNew,
+  clone: cmdClone,
+  add: cmdAdd,
+  pull: cmdPull,
+  ls: cmdLs,
+  npm: cmdNpm,
+  lint: cmdLint,
+};
+
+function main(argv) {
+  const [subcommand, ...args] = argv;
+  if (subcommand === '--help' || subcommand === '-h') {
+    process.stdout.write(USAGE);
+    return 0;
+  }
+  if (subcommand === undefined || !Object.hasOwn(commands, subcommand)) {
+    throw new UsageError();
+  }
+  return commands[subcommand](args) || 0;
+}
+
+try {
+  process.exitCode = main(process.argv.slice(2));
+} catch (error) {
+  if (error instanceof UsageError) {
+    process.stderr.write(USAGE);
+    process.exitCode = 2;
+  } else if (error instanceof GitError) {
+    process.stderr.write(error.message);
+    process.exitCode = 1;
+  } else if (error instanceof WsError) {
+    console.error(`ws: ${error.message}`);
+    process.exitCode = 1;
+  } else {
+    throw error;
+  }
+}
