@@ -1,6 +1,7 @@
 import {
   "moonbitlang/core/env",
   "moonbitlang/core/path",
+  "moonbitlang/core/string",
   "moonbitlang/core/async",
   "moonbitlang/core/async/fs",
   "my-workspace-manager/ws/internal/errors",

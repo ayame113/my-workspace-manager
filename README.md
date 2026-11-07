@@ -40,7 +40,7 @@ moon install https://github.com/ayame113/my-workspace-manager.git cmd/ws
 | `ws pull` | fetch して task 内の worktree を fast-forward で追従させる |
 | `ws ls [--all]` | worktree の一覧 |
 | `ws npm ci [-- <npm ci の引数>]` | node_modules を共有キャッシュ経由で用意する |
-| `ws lint [--all] [--fix]` | 規約違反・壊れた worktree・node_modules の状態を検査する |
+| `ws lint [--all] [--fix]` | 規約違反・壊れた worktree・node_modules の状態・削除が中断された trash の残骸を検査する |
 
 `--task` を省略するとカレントディレクトリが属する task を使う。詳しくは `ws --help` / `ws <command> --help`。
 

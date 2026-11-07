@@ -274,3 +274,48 @@ async test "lint worktree rules" {
     ),
   )
 }
+
+///|
+async test "lint reports and removes stale trash entries" {
+  let s = Sandbox::new()
+  defer s.cleanup()
+  s.setup_ws(["new", "t1"])
+  let trash = "\{s.ws_root}/.cache/trash"
+  let stale = "\{trash}/node_modules-1000-ab"
+  let fresh = "\{trash}/node_modules-\{@env.now()}-cd"
+  for dir in [stale, fresh] {
+    @fs.mkdir("\{dir}/dep", recursive=true)
+  }
+  ignore(s.ws(["lint", "--task", "t1"]))
+  ignore(s.ws(["lint", "--task", "t1", "--fix"]))
+  s.note(
+    "stale exists: \{@fs.exists(stale)}, fresh exists: \{@fs.exists(fresh)}",
+  )
+  ignore(s.ws(["lint", "--task", "t1"]))
+  inspect(
+    s.transcript.to_string(),
+    content=(
+      #|[-] $S/root/.cache/trash/node_modules-1000-ab
+      #|  種類: trash
+      #|  内容: バックグラウンド削除が中断された trash の残骸です
+      #|  fix: 削除する
+      #|
+      #|1 件の問題
+      #|rc=1
+      #|注意: --fix の node_modules 置換は、実行中のプロセス(dev server 等)があると壊れます
+      #|
+      #|[-] $S/root/.cache/trash/node_modules-1000-ab
+      #|  種類: trash
+      #|  内容: バックグラウンド削除が中断された trash の残骸です
+      #|  fix: 削除する
+      #|  結果: 修正しました
+      #|
+      #|1 件の問題(未解決 0 件)
+      #|rc=0
+      #|stale exists: false, fresh exists: true
+      #|問題はありません
+      #|rc=0
+      #|
+    ),
+  )
+}

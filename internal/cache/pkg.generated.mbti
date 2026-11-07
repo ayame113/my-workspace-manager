@@ -26,6 +26,8 @@ pub async fn read_marker(String) -> String?
 
 pub async fn register_in_cache(String, String) -> Unit
 
+pub async fn stale_trash_entries() -> Array[String]
+
 // Errors
 
 // Types and methods

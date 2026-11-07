@@ -311,6 +311,18 @@ async fn lint_dangling_registrations(context : Context) -> Unit {
 }
 
 ///|
+async fn lint_trash(context : Context) -> Unit {
+  for entry in @cache.stale_trash_entries() {
+    context.reporter("-", entry)(
+      "trash",
+      "バックグラウンド削除が中断された trash の残骸です",
+      "削除する",
+      Some(async fn() { @sys.remove_tree(entry) }),
+    )
+  }
+}
+
+///|
 async fn lint_unreferenced_caches(context : Context) -> Unit {
   if context.unscannable > 0 {
     return
@@ -350,6 +362,8 @@ pub async fn run(task : String?, fix : Bool) -> Int32 {
     }
   }
   lint_dangling_registrations(context)
+  // trash は全 task 共通で task の走査結果にも依存しないので、--task 指定時も検査する
+  lint_trash(context)
   if context.issues.is_empty() {
     @sys.log("問題はありません")
     return 0

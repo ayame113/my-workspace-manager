@@ -82,6 +82,43 @@ async fn clone_directory(source : String, destination : String) -> String {
 }
 
 ///|
+fn trash_root() -> String {
+  "\{@layout.root()}/.cache/trash"
+}
+
+///|
+// rename では mtime が変わらないので、退避時刻は名前(`<名前>-<ミリ秒>-<乱数>`)から取る
+fn trashed_at(name : String) -> UInt64? {
+  let parts = name.split("-").collect()
+  guard parts.length() >= 3 else { return None }
+  Some(@string.parse_uint64(parts[parts.length() - 2])) catch {
+    _ => None
+  }
+}
+
+///|
+// 別の ws がまだバックグラウンドで削除中のものを誤検出しないよう、退避から十分経ったものだけを残骸とみなす
+let trash_grace_milliseconds : UInt64 = 10UL * 60UL * 1000UL
+
+///|
+/// 退避から一定時間が過ぎても消えていない trash のエントリのパス。退避時刻が読めないものも含む。
+pub async fn stale_trash_entries() -> Array[String] {
+  let trash = trash_root()
+  if !@sys.exists(trash) {
+    return []
+  }
+  let now = @env.now()
+  @sys.sorted(@fs.readdir(trash, include_hidden=true))
+  .filter(name => {
+    match trashed_at(name) {
+      Some(time) => time + trash_grace_milliseconds <= now
+      None => true
+    }
+  })
+  .map(name => "\{trash}/\{name}")
+}
+
+///|
 /// trash に移してからバックグラウンドで削除する。大きな node_modules の削除を待たないため。無ければ何もしない。
 /// Ctrl-C などのキャンセル中の後始末からも呼ぶので、それ自体は中断されない。
 pub async fn discard_directory(directory : String) -> Unit nocancel {
@@ -89,7 +126,7 @@ pub async fn discard_directory(directory : String) -> Unit nocancel {
     if !@sys.exists(directory) {
       return
     }
-    let trash = "\{@layout.root()}/.cache/trash"
+    let trash = trash_root()
     @fs.mkdir(trash, recursive=true, allow_exist=true)
     let trashed = "\{trash}/\{@path.Path(directory).basename()}-\{unique_suffix()}"
     @fs.rename(directory, trashed)

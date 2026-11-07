@@ -99,6 +99,7 @@ worktree ごとに `npm ci` すると遅くディスクも食うため、`$WS_RO
 
 `ws lint`(`--all` で全 task、省略時は現在の task)は報告のみ、`--fix` で修正する。検出項目は、ディレクトリ名と実ブランチの不一致、upstream が別名ブランチ、readonly の破綻、壊れた worktree、命名規則違反、node_modules の状態(共有済み / 置き換え可能 / lockfile と不一致 / なし / 未参照キャッシュ)。
 
+- 中断されて残った `$WS_ROOT/.cache/trash` の残骸(退避から 10 分以上経ったもの)も、`--task` 指定時を含め常に検出し、`--fix` で削除する。
 - エージェントは `--fix` を勝手に実行しない。まず `ws lint` で報告し、内容をユーザーに伝えて確認を取る。`--fix` の node_modules 置換は、実行中のプロセス(dev server 等)があると壊れるため。
 - 「lockfile と不一致」「node_modules なし」は `ws npm ci` で解消する。
 
