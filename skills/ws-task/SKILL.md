@@ -5,14 +5,14 @@ description: タスク用の作業ディレクトリ(~/ws/tasks/<task>)の作成
 
 # ws-task: タスク単位の worktree 管理
 
-`~/ws/bin/ws` で、タスク(複数の PR / PBI をまとめる大きな単位)ごとに worktree を管理する。
+`ws` コマンド(このプラグインの `bin/ws`。Claude Code の Bash ツールでは PATH に入る)で、タスク(複数の PR / PBI をまとめる大きな単位)ごとに worktree を管理する。
 
 ## エージェントの行動規則(最重要)
 
 この環境の git の ssh 鍵にはパスフレーズがあり、エージェントは ssh が必要な操作を実行できない(待ち状態でハングする)。
 
 - fetch / clone / push / `ws pull` / `ws clone` は自分で実行しない。ユーザーに「別のターミナルで」実行してもらうよう、コピペできるコマンドを提示して依頼する。Claude Code の `!` プレフィックスはパスフレーズ入力ができないので案内しない。
-  - 例: `~/ws/bin/ws pull --task <task>` / `~/ws/bin/ws clone git@github.com:<owner>/<repo>.git`
+  - 例: `ws pull --task <task>` / `ws clone git@github.com:<owner>/<repo>.git`
 - `CLAUDECODE` 環境変数がある場合、`ws pull` と `ws clone` はエラーで即終了する(ハング防止)。
 - ローカルの `origin/<branch>` は古い可能性がある。ブランチの内容に依存する作業の前に、GitHub MCP でリモートの最新コミットを取得し、`git -C ~/ws/repos/<repo>.git rev-parse origin/<branch>` と比較する。不一致ならユーザーに `ws pull --task <task>` の実行を依頼する。
 - `ws add --create` の `--base`(start-point)は `origin/main` のように明示する。bare repo には通常ローカルの main ブランチが無い。

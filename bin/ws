@@ -105,7 +105,7 @@ function requireBare(repo) {
   const bare = barePath(repo);
   if (!fs.existsSync(bare)) {
     throw new WsError(
-      `bare repo '${repo}' がありません。別ターミナルで次を実行してください:\n  ~/ws/bin/ws clone <url> ${repo}`,
+      `bare repo '${repo}' がありません。別ターミナルで次を実行してください:\n  ws clone <url> ${repo}`,
     );
   }
   applyRepoConfig(bare);
@@ -548,11 +548,11 @@ function installNodeModulesInWorktree(worktree) {
         continue;
       }
       failed += 1;
-      console.error(`warn: ${result.message}\n  再実行: cd ${packageDir} && ~/ws/bin/ws npm ci`);
+      console.error(`warn: ${result.message}\n  再実行: cd ${packageDir} && ws npm ci`);
     } catch (error) {
       if (!(error instanceof WsError || error instanceof GitError)) throw error;
       failed += 1;
-      console.error(`warn: ${error.message.trim()}\n  再実行: cd ${packageDir} && ~/ws/bin/ws npm ci`);
+      console.error(`warn: ${error.message.trim()}\n  再実行: cd ${packageDir} && ws npm ci`);
     }
   }
   return failed;
@@ -659,7 +659,7 @@ function lintNodeModules(context, task, worktreeLabel, worktree) {
     const where = path.relative(worktree, packageDir) || '.';
     const marker = readMarker(packageDir);
     if (marker !== null) context.referencedKeys.add(marker);
-    const rerun = `手動対応: cd ${packageDir} && ~/ws/bin/ws npm ci`;
+    const rerun = `手動対応: cd ${packageDir} && ws npm ci`;
     if (!fs.existsSync(path.join(packageDir, 'node_modules'))) {
       context.issues.push(lintIssue(task, worktreeLabel, 'node_modules', `${where}: node_modules がありません`, rerun, null));
       continue;
