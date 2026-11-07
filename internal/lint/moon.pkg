@@ -1,6 +1,8 @@
 import {
   "moonbitlang/core/json",
+  "moonbitlang/core/path",
   "moonbitlang/core/string",
+  "moonbitlang/core/async/fs",
   "my-workspace-manager/ws/internal/cache",
   "my-workspace-manager/ws/internal/errors",
   "my-workspace-manager/ws/internal/git",
@@ -9,3 +11,7 @@ import {
 }
 
 supported_targets = "-all+native"
+
+options(
+  "allow-experimental-packages": [ "moonbitlang/core/async/fs" ],
+)

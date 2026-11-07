@@ -9,8 +9,6 @@ pub(all) suberror GitError {
   GitError(String)
 }
 
-pub(all) suberror UsageError
-
 pub(all) suberror WsError {
   WsError(String)
 }

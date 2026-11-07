@@ -1,12 +1,14 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "my-workspace-manager/ws/internal/git"
 
+import {
+  "my-workspace-manager/ws/internal/sys",
+}
+
 // Values
 pub async fn apply_repo_config(String) -> Unit
 
 pub async fn current_branch(String) -> String?
-
-pub async fn describe_head(String) -> String
 
 pub async fn is_ancestor(String, String, String) -> Bool
 
@@ -16,18 +18,15 @@ pub async fn output(Array[String]) -> String
 
 pub async fn ref_exists(String, String) -> Bool
 
-pub async fn run(Array[String]) -> GitResult
+pub async fn run(Array[String]) -> @sys.Captured
+
+pub async fn short_head(String) -> String
 
 pub async fn succeeds(Array[String]) -> Bool
 
 // Errors
 
 // Types and methods
-pub struct GitResult {
-  ok : Bool
-  stdout : String
-  stderr : String
-}
 
 // Type aliases
 

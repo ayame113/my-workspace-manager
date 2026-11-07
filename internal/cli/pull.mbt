@@ -1,33 +1,11 @@
 ///|
-priv struct PullEntry {
-  kind : String
-  name : String
-  worktree : String
-}
-
-///|
 priv struct Outcome {
   status : String
   detail : String
 }
 
 ///|
-async fn remote_branches_matching_slug(
-  bare : String,
-  slug : String,
-) -> Array[String] {
-  @sys.split_to_array(
-    @git.output([
-      "-C", bare, "for-each-ref", "--format=%(refname:strip=3)", "refs/remotes/origin/",
-    ]),
-    "\n",
-  ).filter(name => {
-    name != "" && name != "HEAD" && @layout.branch_slug(name) == slug
-  })
-}
-
-///|
-async fn update_readonly_worktree(
+async fn update_readonly(
   bare : String,
   worktree : String,
   slug : String,
@@ -35,29 +13,38 @@ async fn update_readonly_worktree(
   if @git.is_dirty(worktree) {
     return { status: "skipped", detail: "未コミット変更あり", }
   }
-  let matches = remote_branches_matching_slug(bare, slug)
-  if matches.length() != 1 {
+  let matches = @git.output([
+      "-C", bare, "for-each-ref", "--format=%(refname:strip=3)", "refs/remotes/origin/",
+    ])
+    .split("\n")
+    .filter(name => {
+      name != "" &&
+      name != "HEAD" &&
+      @layout.branch_slug(name.to_owned()) == slug
+    })
+    .map(name => name.to_owned())
+    .collect()
+  guard matches is [branch] else {
     return {
       status: "error",
       detail: "slug に一致する origin ブランチが \{matches.length()} 件: \{matches.join(" ")}",
     }
   }
-  let target = "origin/\{matches[0]}"
-  let before = @git.output(["-C", worktree, "rev-parse", "HEAD"])
-  if before == @git.output(["-C", worktree, "rev-parse", target]) {
+  let target = "origin/\{branch}"
+  let rev_parse = async fn(rev : String) {
+    @git.output(["-C", worktree, "rev-parse", rev])
+  }
+  if rev_parse("HEAD") == rev_parse(target) {
     return { status: "up-to-date", detail: target, }
   }
   ignore(
     @git.output(["-C", worktree, "checkout", "--quiet", "--detach", target]),
   )
-  {
-    status: "updated",
-    detail: "\{target} (\{@git.output(["-C", worktree, "rev-parse", "--short", "HEAD"])})",
-  }
+  { status: "updated", detail: "\{target} (\{@git.short_head(worktree)})", }
 }
 
 ///|
-async fn update_work_worktree(worktree : String) -> Outcome {
+async fn update_work(worktree : String) -> Outcome {
   guard @git.current_branch(worktree) is Some(branch) else {
     return { status: "skipped", detail: "detached HEAD", }
   }
@@ -67,7 +54,7 @@ async fn update_work_worktree(worktree : String) -> Outcome {
   let upstream = @git.run([
     "-C", worktree, "rev-parse", "--verify", "--quiet", "@{upstream}",
   ])
-  if !upstream.ok {
+  if upstream.exit_code != 0 {
     return { status: "skipped", detail: "upstream なし", }
   }
   let head = @git.output(["-C", worktree, "rev-parse", "HEAD"])
@@ -89,95 +76,78 @@ async fn update_work_worktree(worktree : String) -> Outcome {
   ignore(
     @git.output(["-C", worktree, "merge", "--quiet", "--ff-only", "@{upstream}"]),
   )
-  {
-    status: "updated",
-    detail: "\{branch} (\{@git.output(["-C", worktree, "rev-parse", "--short", "HEAD"])})",
+  { status: "updated", detail: "\{branch} (\{@git.short_head(worktree)})", }
+}
+
+///|
+fn failure(error : Error) -> Outcome raise {
+  match @errors.expected_message(error) {
+    Some(message) => { status: "error", detail: message.trim().to_owned(), }
+    None => raise error
   }
 }
 
 ///|
-async fn cmd_pull(args : Array[String]) -> Int32 {
+async fn cmd_pull(task_option : String?) -> Int32 {
   @layout.refuse_inside_agent("ws pull")
-  let parsed = parse_command_args(args, [text_option("task")], 0, 0)
   let task = @layout.resolve_existing_task(
-    parsed.text("task"),
-    "--task <task> を指定してください",
+    task_option, "--task <task> を指定してください",
   )
   let dir = @layout.task_dir(task)
-  let readonly_dir = @sys.join([dir, "_readonly"])
-  let entries : Array[PullEntry] = []
+  let entries = []
   for name in @layout.list_worktree_names(dir) {
-    entries.push({ kind: "work", name, worktree: @sys.join([dir, name]), })
+    entries.push(("work", name, "\{dir}/\{name}"))
   }
-  for name in @layout.list_worktree_names(readonly_dir) {
-    entries.push({
-      kind: "ro",
-      name,
-      worktree: @sys.join([readonly_dir, name]),
-    })
+  for name in @layout.list_worktree_names("\{dir}/_readonly") {
+    entries.push(("ro", name, "\{dir}/_readonly/\{name}"))
   }
-  if entries.length() == 0 {
+  if entries.is_empty() {
     @sys.log("worktree はありません")
     return 0
   }
-
-  let repos : Array[String] = []
+  let fetch_failures : Map[String, Outcome] = Map([])
+  let repos = []
   for entry in entries {
-    let repo = @layout.repo_of(entry.name)
+    let repo = @layout.split_worktree_name(entry.1).repo
     if !repos.contains(repo) {
       repos.push(repo)
     }
   }
-  let fetch_failures : Map[String, String] = Map([])
   for repo in repos {
     try {
       let bare = @layout.require_bare(repo)
       ignore(@git.output(["-C", bare, "fetch", "--quiet", "origin", "--prune"]))
     } catch {
-      error =>
-        match @errors.expected_message(error) {
-          Some(message) => fetch_failures.set(repo, @sys.trim(message))
-          None => raise error
-        }
+      error => fetch_failures[repo] = failure(error)
     }
   }
-
-  let results : Array[(PullEntry, Outcome)] = []
+  let mut code = 0
   for entry in entries {
-    let repo = @layout.repo_of(entry.name)
-    let outcome = match fetch_failures.get(repo) {
-      Some(failure) => { status: "error", detail: failure, }
+    let (kind, name, worktree) = entry
+    let parsed = @layout.split_worktree_name(name)
+    let outcome = match fetch_failures.get(parsed.repo) {
+      Some(outcome) => outcome
       None =>
         try {
-          if entry.kind == "ro" {
-            update_readonly_worktree(
-              @layout.bare_path(repo),
-              entry.worktree,
-              @sys.slice_from(entry.name, repo.length() + 2),
+          if kind == "ro" {
+            update_readonly(
+              @layout.bare_path(parsed.repo),
+              worktree,
+              parsed.slug,
             )
           } else {
-            update_work_worktree(entry.worktree)
+            update_work(worktree)
           }
         } catch {
-          error =>
-            match @errors.expected_message(error) {
-              Some(message) => { status: "error", detail: @sys.trim(message), }
-              None => raise error
-            }
+          error => failure(error)
         }
     }
-    results.push((entry, outcome))
-  }
-
-  for result in results {
-    let (entry, outcome) = result
+    if outcome.status == "error" {
+      code = 1
+    }
     @sys.log(
-      "\{entry.kind.pad_end(5, ' ')} \{entry.name.pad_end(55, ' ')} \{outcome.status.pad_end(10, ' ')} \{outcome.detail}",
+      "\{kind.pad_end(5, ' ')} \{name.pad_end(55, ' ')} \{outcome.status.pad_end(10, ' ')} \{outcome.detail}",
     )
   }
-  if results.iter().any(result => result.1.status == "error") {
-    1
-  } else {
-    0
-  }
+  code
 }

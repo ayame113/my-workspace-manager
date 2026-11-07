@@ -2,7 +2,6 @@ import {
   "moonbitlang/core/env",
   "moonbitlang/core/async",
   "my-workspace-manager/ws/internal/cli",
-  "my-workspace-manager/ws/internal/sys",
 }
 
 supported_targets = "-all+native"

@@ -1,7 +1,13 @@
 import {
+  "moonbitlang/core/env",
+  "moonbitlang/core/async/fs",
   "my-workspace-manager/ws/internal/errors",
   "my-workspace-manager/ws/internal/git",
   "my-workspace-manager/ws/internal/sys",
 }
 
 supported_targets = "-all+native"
+
+options(
+  "allow-experimental-packages": [ "moonbitlang/core/async/fs" ],
+)

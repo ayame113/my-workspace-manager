@@ -12,9 +12,7 @@ pub async fn compute_cache_key(String) -> String
 
 pub async fn discard_directory(String) -> Unit
 
-pub async fn ensure_node_modules(String, Array[String]) -> EnsureResult
-
-pub fn environment_for(String) -> Map[String, String]
+pub async fn ensure_node_modules(String, Array[String]) -> Result[String, Int32]
 
 pub async fn find_package_dir(String) -> String
 
@@ -26,16 +24,11 @@ pub async fn place_from_cache(String, String) -> String
 
 pub async fn read_marker(String) -> String?
 
-pub async fn register_in_cache(String, String) -> Bool
+pub async fn register_in_cache(String, String) -> Unit
 
 // Errors
 
 // Types and methods
-pub struct EnsureResult {
-  ok : Bool
-  message : String
-  exit_code : Int32
-}
 
 // Type aliases
 

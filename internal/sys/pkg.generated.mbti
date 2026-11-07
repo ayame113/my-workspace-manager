@@ -2,86 +2,37 @@
 package "my-workspace-manager/ws/internal/sys"
 
 // Values
-pub fn basename(String) -> String
+pub fn clonefile(String, String) -> Bool
 
-pub fn clonefile(String, String) -> Int32
-
-pub fn current_directory() -> String
-
-pub fn dirname(String) -> String
-
-pub fn environment() -> Map[String, String]
-
-pub fn environment_variable(String) -> String?
+pub async fn eprint(String) -> Unit
 
 pub async fn exists(String) -> Bool
 
-pub fn exit(Int32) -> Unit
-
-pub fn format_iso_timestamp(Int64) -> String
-
 pub async fn is_directory(String) -> Bool
-
-pub fn is_js_whitespace(UInt16) -> Bool
-
-pub fn iso_timestamp() -> String
-
-pub fn join(Array[String]) -> String
 
 pub async fn log(String) -> Unit
 
 pub async fn log_error(String) -> Unit
 
-pub async fn make_directory(String, recursive? : Bool) -> Unit
+pub async fn print(String) -> Unit
 
-pub fn normalize(String) -> String
+pub async fn remove_tree(String) -> Unit
 
-pub fn process_id() -> Int32
+pub async fn run_captured(String, Array[String], cwd? : String) -> Captured
 
-pub async fn read_text(String) -> String
-
-pub async fn realpath(String) -> String
-
-pub fn relative(String, String, cwd~ : String) -> String
-
-pub async fn remove_recursively(String) -> Unit
-
-pub async fn rename(String, String) -> Unit
-
-pub fn resolve(String, cwd~ : String) -> String
-
-pub async fn run_captured(String, Array[String], cwd? : String, env? : Map[String, String]) -> Captured
-
-pub async fn run_inheriting(String, Array[String], cwd? : String, env? : Map[String, String]) -> Int32?
+pub async fn run_inheriting(String, Array[String], cwd? : String) -> Int32
 
 pub async fn run_silently(String, Array[String]) -> Bool
 
-pub async fn sha256_hex_of_file(String) -> String
-
-pub fn slice_from(String, Int32) -> String
+pub async fn sha256_hex(String) -> String
 
 pub fn sorted(Array[String]) -> Array[String]
 
-pub fn spawn_detached(String, Array[String]) -> Int32
-
-pub fn split_to_array(String, String) -> Array[String]
+pub async fn spawn_in_background(String, Array[String]) -> Unit
 
 pub async fn subdirectory_names(String) -> Array[String]
 
-pub fn trim(String) -> String
-
-pub fn unique_suffix() -> String
-
-pub async fn write_stderr(String) -> Unit
-
-pub async fn write_stdout(String) -> Unit
-
-pub async fn write_text(String, String) -> Unit
-
 // Errors
-pub(all) suberror SpawnError {
-  SpawnError(String)
-}
 
 // Types and methods
 pub struct Captured {

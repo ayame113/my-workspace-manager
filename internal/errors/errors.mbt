@@ -1,9 +1,5 @@
 ///|
-/// コマンドラインの誤り。usage を表示して終了コード 2 にする。
-pub(all) suberror UsageError
-
-///|
-/// ユーザー向けメッセージ付きの想定内の失敗。`ws: <message>` を表示して終了コード 1 にする。
+/// 想定内の失敗。`ws: <message>` を表示して終了コード 1 にする。
 pub(all) suberror WsError {
   WsError(String)
 }
@@ -15,11 +11,10 @@ pub(all) suberror GitError {
 }
 
 ///|
-/// `WsError` か `GitError` ならそのメッセージ、それ以外のエラーなら `None`。
+/// `WsError` か `GitError` ならそのメッセージ、それ以外は `None`。
 pub fn expected_message(error : Error) -> String? {
   match error {
-    WsError(message) => Some(message)
-    GitError(message) => Some(message)
+    WsError(message) | GitError(message) => Some(message)
     _ => None
   }
 }

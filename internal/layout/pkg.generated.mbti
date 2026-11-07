@@ -14,15 +14,11 @@ pub fn is_repo_name_shape(String) -> Bool
 
 pub fn is_valid_task_name(String) -> Bool
 
-pub async fn is_worktree(String) -> Bool
-
 pub async fn list_worktree_names(String) -> Array[String]
 
 pub fn parse_worktree_name(String) -> WorktreeName?
 
 pub fn refuse_inside_agent(String) -> Unit raise @errors.WsError
-
-pub fn repo_of(String) -> String
 
 pub fn repos_root() -> String
 
@@ -33,6 +29,8 @@ pub async fn resolve_existing_task(String?, String) -> String
 pub fn root() -> String
 
 pub fn slug_or_raise(String) -> String raise @errors.WsError
+
+pub fn split_worktree_name(String) -> WorktreeName
 
 pub fn task_dir(String) -> String
 
