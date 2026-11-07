@@ -1,0 +1,42 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "my-workspace-manager/ws/internal/cli"
+
+import {
+  "moonbitlang/core/set",
+  "my-workspace-manager/ws/internal/errors",
+}
+
+// Values
+pub fn flag_option(String, short? : Char) -> OptionSpec
+
+pub fn parse_command_args(Array[String], Array[OptionSpec], Int32, Int32) -> ParsedArgs raise @errors.UsageError
+
+pub async fn run(Array[String]) -> Int32
+
+pub fn text_option(String) -> OptionSpec
+
+// Errors
+
+// Types and methods
+pub(all) enum OptionKind {
+  Text
+  Flag
+}
+
+pub(all) struct OptionSpec {
+  name : String
+  kind : OptionKind
+  short : Char?
+}
+
+pub struct ParsedArgs {
+  texts : Map[String, String]
+  flags : @set.Set[String]
+  positionals : Array[String]
+}
+pub fn ParsedArgs::flag(Self, String) -> Bool
+pub fn ParsedArgs::text(Self, String) -> String?
+
+// Type aliases
+
+// Traits

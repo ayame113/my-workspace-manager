@@ -5,7 +5,19 @@ description: タスク用の作業ディレクトリ(~/ws/tasks/<task>)の作成
 
 # ws-task: タスク単位の worktree 管理
 
-`ws` コマンド(このプラグインの `bin/ws`。Claude Code の Bash ツールでは PATH に入る)で、タスク(複数の PR / PBI をまとめる大きな単位)ごとに worktree を管理する。
+`ws` コマンド(このリポジトリの MoonBit 製ネイティブバイナリ。`~/.moon/bin/ws` にインストールして使う)で、タスク(複数の PR / PBI をまとめる大きな単位)ごとに worktree を管理する。
+
+## インストール
+
+[MoonBit ツールチェーン](https://www.moonbitlang.com/download/)(`moon`)が必要。
+
+```
+moon install --path <このリポジトリ>/cmd/ws   # ~/.moon/bin/ws に入る
+```
+
+- `~/.moon/bin` を PATH に入れる。
+- 更新は、このリポジトリを `ws pull` などで最新にしてから同じコマンドで再インストールする。
+- `ws` が見つからない場合、エージェントは自分でインストールせず、上記の手順をユーザーに案内する。
 
 ## エージェントの行動規則(最重要)
 
@@ -21,7 +33,6 @@ description: タスク用の作業ディレクトリ(~/ws/tasks/<task>)の作成
 
 ```
 ~/ws/
-├── bin/ws
 ├── repos/                      # bare repo。ここでは作業しない
 │   └── <repo>.git
 └── tasks/
@@ -77,7 +88,7 @@ ws lint [--all] [--fix]                   # 規約違反・壊れた worktree・
 
 ## node_modules の共有キャッシュ
 
-worktree ごとに `npm ci` すると遅くディスクも食うため、`$WS_ROOT/.cache/node_modules/` に package-lock.json のハッシュと Node の ABI をキーとしてキャッシュし、APFS の clonefile(copy-on-write)で複製する。
+worktree ごとに `npm ci` すると遅くディスクも食うため、`$WS_ROOT/.cache/node_modules/` に package-lock.json のハッシュと Node の ABI をキーとしてキャッシュし、APFS の clonefile(copy-on-write)で複製する。ABI は対象ディレクトリで nodenv が選ぶ node(`.node-version`)から取る。
 
 - `npm ci` の代わりに `ws npm ci` を使う(素の `npm ci` だと共有されない)。cwd から上へ辿って最初の package.json のディレクトリが対象。`ws npm ci -- <引数>` の引数は npm ci にそのまま渡り、その場合キャッシュは使わない。
 - `ws add` は worktree 作成後、`git ls-files` で見つかる全 package-lock.json について自動で node_modules を用意する。`--no-install` で省略できる。npm ci に失敗しても worktree は作られ、警告と再実行コマンドを出して終了コード 1 になる。

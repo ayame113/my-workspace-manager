@@ -1,0 +1,12 @@
+import {
+  "my-workspace-manager/ws/internal/errors",
+  "my-workspace-manager/ws/internal/git",
+  "my-workspace-manager/ws/internal/layout",
+  "my-workspace-manager/ws/internal/sys",
+}
+
+supported_targets = "-all+native"
+
+// ws は async タスクをキャンセルしないので、catch での後始末で問題ない
+
+warnings = "-fragile_catch_all"

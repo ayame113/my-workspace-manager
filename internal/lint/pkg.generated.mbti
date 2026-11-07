@@ -1,0 +1,17 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "my-workspace-manager/ws/internal/lint"
+
+// Values
+pub async fn run(Scope, Bool) -> Int32
+
+// Errors
+
+// Types and methods
+pub(all) enum Scope {
+  AllTasks
+  Task(String)
+}
+
+// Type aliases
+
+// Traits
