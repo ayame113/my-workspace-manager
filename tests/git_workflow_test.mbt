@@ -289,6 +289,7 @@ async test "usage errors exit with 2" {
       ["add", "--repo", "r", "--branch", "x", "-c"],
       ["add", "--repo", "r", "--branch", "x", "--readonly", "-c", "--base", "o"],
       ["add", "--repo", "r", "--branch", "-x"],
+      ["rename", "--repo", "r", "--branch", "a"],
       ["ls", "--all", "--task", "t"],
       ["lint", "--all", "--task", "t"],
       ["lint", "--task", "--bogus"],
@@ -300,8 +301,164 @@ async test "usage errors exit with 2" {
   inspect(
     s.transcript.to_string(),
     content=(
-      #|2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2
+      #|2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2
       #|help rc=0
+      #|
+    ),
+  )
+}
+
+///|
+async fn Sandbox::rename(
+  self : Sandbox,
+  args : Array[String],
+  cwd? : String,
+) -> Outcome {
+  self.ws(["rename", "--repo", "myrepo", ..args], cwd?)
+}
+
+///|
+async test "rename" {
+  let s = Sandbox::new()
+  defer s.cleanup()
+  s.make_remote("myrepo", ["tracked/old", "other"])
+  s.setup_ws(["new", "t-ren"])
+  let task_dir = "\{s.tasks}/t-ren"
+  let bare = "\{s.ws_root}/repos/myrepo.git"
+  let add = (args : Array[String]) => {
+    s.setup_ws(["add", "--task", "t-ren", "--repo", "myrepo", ..args])
+  }
+  add(["--branch", "plain", "-c", "--base", "origin/review"])
+  add(["--branch", "feat/x", "-c", "--base", "origin/review"])
+  add(["--branch", "tracked/old"])
+  add(["--branch", "other"])
+  add(["--branch", "taken", "-c", "--base", "origin/review"])
+  add(["--branch", "stay", "-c", "--base", "origin/review"])
+  add(["--branch", "inside", "-c", "--base", "origin/review"])
+  add(["--readonly", "--branch", "other"])
+  ignore(
+    s.rename(["--task", "t-ren", "--branch", "plain", "--to", "renamed/plain"]),
+  )
+  ignore(s.ws(["ls", "--task", "t-ren"]))
+  ignore(s.ws(["lint", "--task", "t-ren"]))
+  s.note(
+    "branches: \{s.git(bare, ["branch", "--format=%(refname:short)"]).replace_all(old="\n", new=" ")}",
+  )
+
+  ignore(s.rename(["--branch", "feat/x", "--to", "feat--x"], cwd=task_dir))
+  s.note(
+    "slug unchanged: \{@fs.exists("\{task_dir}/myrepo--feat-x")} \{s.git("\{task_dir}/myrepo--feat-x", ["branch", "--show-current"])}",
+  )
+  ignore(s.ws(["lint", "--task", "t-ren"]))
+
+  ignore(
+    s.rename([
+      "--task", "t-ren", "--branch", "tracked/old", "--to", "tracked/new",
+    ]),
+  )
+  s.note(
+    "upstream rc=\{s.exec("git", ["-C", "\{task_dir}/myrepo--tracked-new", "rev-parse", "@{u}"]).code}",
+  )
+  s.note(
+    "remote branch kept: \{s.exec("git", ["-C", bare, "show-ref", "--verify", "--quiet", "refs/remotes/origin/tracked/old"]).code == 0}",
+  )
+  ignore(s.rename(["--task", "t-ren", "--branch", "plain", "--to", "x"]))
+
+  ignore(s.rename(["--task", "t-ren", "--branch", "taken", "--to", "other"]))
+  @fs.mkdir("\{task_dir}/myrepo--occupied")
+  ignore(s.rename(["--task", "t-ren", "--branch", "taken", "--to", "occupied"]))
+  ignore(
+    s.rename(["--task", "t-ren", "--branch", "taken", "--to", "bad..name"]),
+  )
+  ignore(s.rename(["--task", "t-ren", "--branch", "taken", "--to", "@{-1}"]))
+  ignore(s.rename(["--task", "t-ren", "--branch", "stay", "--to", "stay"]))
+  ignore(s.rename(["--task", "t-ren", "--branch", "other", "--to", "other2"]))
+  ignore(
+    s.ws([
+      "rename", "--task", "t-ren", "--repo", "nosuch", "--branch", "stay", "--to",
+      "z",
+    ]),
+  )
+  s.note(
+    "taken dir kept: \{@fs.exists("\{task_dir}/myrepo--taken")} \{s.git("\{task_dir}/myrepo--taken", ["branch", "--show-current"])}",
+  )
+
+  ignore(
+    s.rename(
+      ["--branch", "inside", "--to", "outside"],
+      cwd="\{task_dir}/myrepo--inside",
+    ),
+  )
+  s.note("inside kept: \{@fs.exists("\{task_dir}/myrepo--inside")}")
+  ignore(s.ws(["ls", "--task", "t-ren"]))
+  inspect(
+    s.transcript.to_string(),
+    content=(
+      #|リネームしました: plain → renamed/plain
+      #|新しいパス: $S/root/tasks/t-ren/myrepo--renamed-plain
+      #|rc=0
+      #|work   myrepo--feat-x                                          feat/x                                        clean
+      #|work   myrepo--inside                                          inside                                        clean
+      #|work   myrepo--other                                           other                                         clean
+      #|work   myrepo--renamed-plain                                   renamed/plain                                 clean
+      #|work   myrepo--stay                                            stay                                          clean
+      #|work   myrepo--taken                                           taken                                         clean
+      #|work   myrepo--tracked-old                                     tracked/old                                   clean
+      #|ro     myrepo--other                                           detached@0b8354e                              clean
+      #|rc=0
+      #|問題はありません
+      #|rc=0
+      #|branches: feat/x inside other renamed/plain stay taken tracked/old
+      #|リネームしました: feat/x → feat--x
+      #|rc=0
+      #|slug unchanged: true feat--x
+      #|問題はありません
+      #|rc=0
+      #|リネームしました: tracked/old → tracked/new
+      #|新しいパス: $S/root/tasks/t-ren/myrepo--tracked-new
+      #|origin/tracked/old は残っています。リモートに反映するには(別ターミナルで):
+      #|  git push -u origin tracked/new
+      #|  git push origin --delete tracked/old
+      #|※ tracked/old の PR がある場合は、代わりに GitHub の Branches 画面でリネームし、
+      #|  ws pull の後に git branch -u origin/tracked/new を実行してください
+      #|rc=0
+      #|upstream rc=128
+      #|remote branch kept: true
+      #|! ws: 作業用 worktree $S/root/tasks/t-ren/myrepo--plain が無いか、ブランチ 'plain' を checkout していません
+      #|rc=1
+      #|! ws: ローカルブランチ 'other' は既に存在します
+      #|rc=1
+      #|! ws: 移動先 $S/root/tasks/t-ren/myrepo--occupied は既に存在します
+      #|rc=1
+      #|! ws: ブランチ名 'bad..name' は git で使えません
+      #|rc=1
+      #|! ws: ブランチ名 '@{-1}' は git で使えません
+      #|rc=1
+      #|! ws: ローカルブランチ 'stay' は既に存在します
+      #|rc=1
+      #|リネームしました: other → other2
+      #|新しいパス: $S/root/tasks/t-ren/myrepo--other2
+      #|origin/other は残っています。リモートに反映するには(別ターミナルで):
+      #|  git push -u origin other2
+      #|  git push origin --delete other
+      #|※ other の PR がある場合は、代わりに GitHub の Branches 画面でリネームし、
+      #|  ws pull の後に git branch -u origin/other2 を実行してください
+      #|rc=0
+      #|! ws: bare repo 'nosuch' がありません。別ターミナルで次を実行してください:
+      #|rc=1
+      #|taken dir kept: true taken
+      #|! ws: カレントディレクトリが $S/root/tasks/t-ren/myrepo--inside 配下のため、worktree を移動できません。別のディレクトリで実行してください
+      #|rc=1
+      #|inside kept: true
+      #|work   myrepo--feat-x                                          feat--x                                       clean
+      #|work   myrepo--inside                                          inside                                        clean
+      #|work   myrepo--other2                                          other2                                        clean
+      #|work   myrepo--renamed-plain                                   renamed/plain                                 clean
+      #|work   myrepo--stay                                            stay                                          clean
+      #|work   myrepo--taken                                           taken                                         clean
+      #|work   myrepo--tracked-new                                     tracked/new                                   clean
+      #|ro     myrepo--other                                           detached@0b8354e                              clean
+      #|rc=0
       #|
     ),
   )

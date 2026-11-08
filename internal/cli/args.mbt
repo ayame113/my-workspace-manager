@@ -64,6 +64,20 @@ let command : @argparse.Command = Command(
       ],
     ),
     Command(
+      "rename",
+      about="作業用 worktree のブランチ名を変える(slug が変わればディレクトリも移動する)",
+      options=[
+        task_option(),
+        OptionArg(
+          "repo",
+          about="repos/ にある bare repo の名前",
+          required=true,
+        ),
+        OptionArg("branch", about="現在のブランチ名", required=true),
+        OptionArg("to", about="新しいブランチ名", required=true),
+      ],
+    ),
+    Command(
       "pull",
       about="fetch して task 内の worktree を追従させる",
       options=[task_option()],
@@ -114,6 +128,7 @@ priv enum Invocation {
     base~ : String?,
     read_only~ : Bool
   )
+  Rename(task~ : String?, repo~ : String, branch~ : String, to~ : String)
   Pull(task~ : String?)
   Ls(Target)
   Compact(dry_run~ : Bool)
@@ -158,6 +173,13 @@ fn parse(argv : Array[String]) -> ParseResult {
         branch=text("branch").unwrap_or(""),
         base=text("base"),
         read_only=flag("readonly"),
+      )
+    "rename" =>
+      Rename(
+        task=text("task"),
+        repo=text("repo").unwrap_or(""),
+        branch=text("branch").unwrap_or(""),
+        to=text("to").unwrap_or(""),
       )
     "pull" => Pull(task=text("task"))
     "ls" => Ls(target())

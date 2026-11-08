@@ -36,6 +36,7 @@ moon install https://github.com/ayame113/my-workspace-manager.git cmd/ws
 | `ws new <task>` | `tasks/<task>/` を作る |
 | `ws clone <url> [<repo>]` | bare repo を `repos/` に用意する |
 | `ws add --repo <repo> --branch <branch> [-c --base <start-point> \| --readonly]` | worktree を作る |
+| `ws rename --repo <repo> --branch <old> --to <new>` | 作業用 worktree のブランチ名を変える。slug が変わればディレクトリも移動する |
 | `ws pull` | fetch して task 内の worktree を fast-forward で追従させる |
 | `ws ls [--all]` | worktree の一覧 |
 | `ws compact [--dry-run]` | 全 task の node_modules 内の同一ファイルを clonefile で共有し、容量を減らす |
@@ -44,6 +45,14 @@ moon install https://github.com/ayame113/my-workspace-manager.git cmd/ws
 `--task` を省略するとカレントディレクトリが属する task を使う。詳しくは `ws --help` / `ws <command> --help`。
 
 終了コードは 0 が成功、1 が実行時の失敗(lint で未解決の問題がある場合を含む)、2 が使い方の誤り。
+
+### ws rename
+
+作業用 worktree のブランチをローカルでリネームする。ネットワークは使わないので、エージェントからも実行できる。
+
+- 事前に、worktree が `<old>` を checkout していること、`<new>` が妥当な名前でローカルに無いこと、slug が変わるなら移動先が空いていることを確認する。slug が変わる場合、ws を実行しているカレントディレクトリが対象 worktree 配下だと拒否する。
+- `git branch -m` の後、slug が変わるときだけ `git worktree move` する。移動に失敗したらブランチ名を戻す。
+- `<old>` に upstream があった場合は upstream を外し、リモートへの反映手順(`git push -u origin <new>` と旧ブランチの削除)を表示する。リモートは変更しない。`_readonly/` の worktree は対象外。
 
 ### ws compact
 

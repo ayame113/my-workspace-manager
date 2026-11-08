@@ -26,6 +26,15 @@ async fn execute(invocation : Invocation) -> Int32 {
         base~,
         read_only~,
       )
+    Rename(task~, repo~, branch~, to~) =>
+      cmd_rename(
+        @layout.resolve_existing_task(
+          task, "--task <task> を指定してください",
+        ),
+        repo,
+        branch,
+        to,
+      )
     Pull(task~) => cmd_pull(task)
     Ls(target) => cmd_ls(resolve(target))
     Compact(dry_run~) => @compact.run(dry_run~)

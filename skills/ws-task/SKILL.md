@@ -1,6 +1,6 @@
 ---
 name: ws-task
-description: タスク用の作業ディレクトリ(~/ws/tasks/<task>)の作成、git worktree の追加(作業用 / readonly 参照用 / 新規ブランチ)、一覧、ローカル worktree のリモート追従(ws pull)、node_modules の重複排除によるディスク容量の削減(ws compact)、規約違反の検査(ws lint)をするときに使う。「タスクを作って」「worktreeを追加」「〇〇ブランチを参照用に」「新しいブランチで作業を始めたい」「worktreeを最新にして」「容量を減らして」「workspace を点検して」などの依頼で起動する。
+description: タスク用の作業ディレクトリ(~/ws/tasks/<task>)の作成、git worktree の追加(作業用 / readonly 参照用 / 新規ブランチ)、ブランチ名の変更(ws rename)、一覧、ローカル worktree のリモート追従(ws pull)、node_modules の重複排除によるディスク容量の削減(ws compact)、規約違反の検査(ws lint)をするときに使う。「タスクを作って」「worktreeを追加」「ブランチ名を変えたい」「〇〇ブランチを参照用に」「新しいブランチで作業を始めたい」「worktreeを最新にして」「容量を減らして」「workspace を点検して」などの依頼で起動する。
 ---
 
 # ws-task: タスク単位の worktree 管理
@@ -66,13 +66,14 @@ ws clone <url> [<repo>]                    # 【ユーザーが実行】bare rep
 ws add --repo <repo> --branch <branch>     # git switch <branch> 相当。作業用 worktree を作る
 ws add --repo <repo> --branch <branch> --create --base <start-point>   # git switch -c 相当(-c は --create の短縮形)。新規ブランチ(upstream なし)
 ws add --repo <repo> --branch <branch> --readonly   # origin/<branch> を detached で _readonly/ に作る
+ws rename --repo <repo> --branch <old> --to <new>   # 作業用 worktree のブランチ名を変える。slug が変わればディレクトリも移動する
 ws pull                                    # 【ユーザーが実行】fetch して task 内の worktree を追従させる
 ws ls [--all]                             # task の worktree 一覧 / --all は全 task
 ws compact [--dry-run]                     # 全 task の node_modules 内の同一ファイルを clonefile で共有し、容量を減らす
 ws lint [--all] [--fix]                   # 規約違反・壊れた worktree を検査する
 ```
 
-- `add` / `pull` / `ls` / `lint` は `--task <task>` で task を指定する。省略するとカレントディレクトリが属する task を使う(`--task .` も同じ)。task の外では `--task`(`ls` / `lint` は `--all` でも可)の指定が必要。`add` は `--repo` と `--branch` が必須で、位置引数は受け付けない。オプションの順序は自由。
+- `add` / `rename` / `pull` / `ls` / `lint` は `--task <task>` で task を指定する。省略するとカレントディレクトリが属する task を使う(`--task .` も同じ)。task の外では `--task`(`ls` / `lint` は `--all` でも可)の指定が必要。`add` は `--repo` と `--branch` が必須で、位置引数は受け付けない。オプションの順序は自由。
 - 以下のコマンド例の `--task` は省略している(task ルートで実行する前提)。task 外から実行するなら `--task <task>` を付ける。
 - `ws add` はネットワークを使わない。fetch も自動 clone もしない。bare repo が無ければ、実行すべき `ws clone` コマンドがエラーに表示される。
 - `ws add --repo <repo> --branch <branch>` のブランチ解決:
@@ -84,6 +85,12 @@ ws lint [--all] [--fix]                   # 規約違反・壊れた worktree �
   - readonly: 最新の `origin/<branch>` に detached で付け直す。
   - 作業用: upstream があれば `git merge --ff-only`。マージコミットや rebase は作らない。
   - 未コミット変更あり、upstream なし、upstream と分岐、はスキップして理由を表示する。一致するブランチが0件 / 複数件の readonly と、その他の失敗は error として表示され、終了コードは 1 になる。
+
+## ブランチ名の変更(ws rename)
+
+- ローカルだけの操作なので、エージェントが実行してよい(`CLAUDECODE` でも拒否されない)。`_readonly/` の worktree は対象外。
+- slug が変わると worktree のディレクトリも `<repo>--<新slug>` に移動する。移動する場合、ws を実行するカレントディレクトリは対象 worktree の外にする(配下だと拒否される)。
+- `<old>` に upstream があった場合は rename 後に外す。`origin/<old>` は残るので、表示される `git push -u origin <new>` と `git push origin --delete <old>` をユーザーに別のターミナルで実行してもらう。PR がある場合は GitHub の Branches 画面でのリネームを案内する。
 
 ## node_modules と容量(ws compact)
 
