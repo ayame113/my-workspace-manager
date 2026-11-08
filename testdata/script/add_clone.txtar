@@ -67,5 +67,5 @@ cmp stdout want-ls.txt
 -- want-add-remote.txt --
 作成しました: $WS_ROOT/tasks/t-one/myrepo--release-wave3-1
 -- want-ls.txt --
-t-one   4 worktrees (1 readonly)   clean
 t-two   2 worktrees (1 readonly)   clean
+t-one   4 worktrees (1 readonly)   clean

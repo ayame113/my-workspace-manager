@@ -451,3 +451,39 @@ func TestSkillInstall(t *testing.T) {
 		})
 	}
 }
+
+func TestCompletion(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{"subcommands", []string{"worktree", ""}, []string{"add", "lint", "ls", "pull", "rename"}},
+		{"task flag", []string{"worktree", "ls", "--task", ""}, []string{"t1", "t2"}},
+		{"repo flag", []string{"worktree", "add", "--repo", ""}, []string{"r"}},
+		{"skill targets", []string{"skill", "install", ""}, []string{"claude", "codex"}},
+		{"no files", []string{"ls", ""}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newHarness(t, envOptions{})
+			if got := h.run(append([]string{"__complete"}, tt.args...)...); got != 0 {
+				t.Fatalf("exit code = %d\nstderr: %s", got, h.stderr.String())
+			}
+			lines := strings.Split(strings.TrimSpace(h.stdout.String()), "\n")
+			var got []string
+			for _, line := range lines[:len(lines)-1] {
+				name, _, _ := strings.Cut(line, "\t")
+				got = append(got, name)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("candidates = %q, want %q", got, tt.want)
+			}
+			if directive := lines[len(lines)-1]; directive != ":4" {
+				t.Errorf("directive = %s, want :4 (no file completion)", directive)
+			}
+		})
+	}
+}

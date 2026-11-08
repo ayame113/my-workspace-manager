@@ -7,7 +7,9 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/ayame113/my-workspace-manager/internal/fsx"
 	"github.com/ayame113/my-workspace-manager/internal/gitexec"
@@ -399,10 +401,11 @@ func (a *App) renameBranchAndMove(ctx context.Context, bare, oldWorktree, newWor
 }
 
 type WorktreeEntry struct {
-	Kind  string
-	Name  string
-	Head  string
-	Dirty bool
+	Kind    string
+	Name    string
+	Head    string
+	Dirty   bool
+	Updated time.Time
 }
 
 const (
@@ -417,12 +420,12 @@ func entriesIn(dir, kind string) ([]WorktreeEntry, error) {
 	}
 	entries := make([]WorktreeEntry, 0, len(names))
 	for _, name := range names {
-		entries = append(entries, WorktreeEntry{Kind: kind, Name: name})
+		entries = append(entries, WorktreeEntry{Kind: kind, Name: name, Updated: worktreeActivity(filepath.Join(dir, name))})
 	}
 	return entries, nil
 }
 
-// worktreeEntries lists the work worktrees followed by the readonly ones, without querying git.
+// worktreeEntries lists the work worktrees followed by the readonly ones, each in name order, without querying git.
 func (a *App) worktreeEntries(task string) ([]WorktreeEntry, error) {
 	work, err := entriesIn(a.layout.TaskDir(task), KindWork)
 	if err != nil {
@@ -442,7 +445,7 @@ func (e WorktreeEntry) path(l layout.Layout, task string) string {
 	return l.TaskDir(task) + "/" + e.Name
 }
 
-// ListWorktrees returns the work worktrees followed by the readonly ones.
+// ListWorktrees returns the work worktrees followed by the readonly ones, each most recently active first.
 func (a *App) ListWorktrees(ctx context.Context, task string) ([]WorktreeEntry, error) {
 	entries, err := a.worktreeEntries(task)
 	if err != nil {
@@ -466,6 +469,13 @@ func (a *App) ListWorktrees(ctx context.Context, task string) ([]WorktreeEntry, 
 			return nil, err
 		}
 	}
+	readonlyFrom := slices.IndexFunc(entries, func(e WorktreeEntry) bool { return e.Kind == KindReadonly })
+	if readonlyFrom < 0 {
+		readonlyFrom = len(entries)
+	}
+	updated := func(e WorktreeEntry) time.Time { return e.Updated }
+	newestFirst(entries[:readonlyFrom], updated)
+	newestFirst(entries[readonlyFrom:], updated)
 	return entries, nil
 }
 
@@ -474,8 +484,10 @@ type TaskSummary struct {
 	Work     int
 	Readonly int
 	Dirty    int
+	Updated  time.Time
 }
 
+// ListTasks summarizes every task, most recently active first.
 func (a *App) ListTasks(ctx context.Context) ([]TaskSummary, error) {
 	if !fsx.Exists(a.layout.TasksRoot()) {
 		return nil, nil
@@ -490,7 +502,7 @@ func (a *App) ListTasks(ctx context.Context) ([]TaskSummary, error) {
 		if err != nil {
 			return nil, err
 		}
-		summary := TaskSummary{Name: name}
+		summary := TaskSummary{Name: name, Updated: a.taskActivity(name, entries)}
 		for _, entry := range entries {
 			if entry.Kind == KindReadonly {
 				summary.Readonly++
@@ -507,5 +519,6 @@ func (a *App) ListTasks(ctx context.Context) ([]TaskSummary, error) {
 		}
 		summaries = append(summaries, summary)
 	}
+	newestFirst(summaries, func(s TaskSummary) time.Time { return s.Updated })
 	return summaries, nil
 }

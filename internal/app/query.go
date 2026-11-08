@@ -4,18 +4,32 @@ import (
 	"context"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/ayame113/my-workspace-manager/internal/fsx"
 	"github.com/ayame113/my-workspace-manager/internal/gitexec"
 	"github.com/ayame113/my-workspace-manager/internal/layout"
 )
 
-// TaskNames lists the existing tasks.
+// TaskNames lists the existing tasks, most recently active first.
 func (a *App) TaskNames() ([]string, error) {
 	if !fsx.Exists(a.layout.TasksRoot()) {
 		return nil, nil
 	}
-	return fsx.SubdirNames(a.layout.TasksRoot())
+	names, err := fsx.SubdirNames(a.layout.TasksRoot())
+	if err != nil {
+		return nil, err
+	}
+	updated := make(map[string]time.Time, len(names))
+	for _, name := range names {
+		entries, err := a.worktreeEntries(name)
+		if err != nil {
+			return nil, err
+		}
+		updated[name] = a.taskActivity(name, entries)
+	}
+	newestFirst(names, func(name string) time.Time { return updated[name] })
+	return names, nil
 }
 
 // RepoNames lists the bare repos under repos/.

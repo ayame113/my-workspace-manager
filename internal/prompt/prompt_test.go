@@ -166,10 +166,15 @@ func TestChooseTaskFailsWithoutTasks(t *testing.T) {
 	}
 }
 
-func TestChooseTaskReturnsSelectedTask(t *testing.T) {
+func TestChooseTaskListsNewestFirst(t *testing.T) {
 	p, root := newPrompterAt(t, strings.NewReader("\x1b[B\r"))
-	for _, task := range []string{"a", "b"} {
-		if err := os.MkdirAll(root+"/tasks/"+task, 0o755); err != nil {
+	now := time.Now()
+	for task, age := range map[string]time.Duration{"a": time.Hour, "b": 2 * time.Hour, "c": 0} {
+		dir := root + "/tasks/" + task
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(dir, now.Add(-age), now.Add(-age)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -177,8 +182,8 @@ func TestChooseTaskReturnsSelectedTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "b" {
-		t.Errorf("got %q", got)
+	if got != "a" {
+		t.Errorf("got %q, want the second newest", got)
 	}
 }
 

@@ -23,7 +23,6 @@ func (r *runner) rootCommand() *cobra.Command {
 		SilenceErrors:     true,
 		PersistentPreRunE: r.beforeRun,
 		RunE:              requireSubcommand,
-		CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
 	}
 	root.Flags().BoolP("version", "V", false, "バージョンを表示する")
 	root.SetVersionTemplate("{{.Version}}\n")
@@ -36,6 +35,7 @@ func (r *runner) rootCommand() *cobra.Command {
 		r.worktreeCommand(),
 		r.skillCommand(),
 	)
+	disableFileCompletion(root)
 	return root
 }
 
@@ -193,8 +193,9 @@ func (r *runner) worktreeCommand() *cobra.Command {
 	return cmd
 }
 
-func addTaskFlag(cmd *cobra.Command, task *string) {
+func (r *runner) addTaskFlag(cmd *cobra.Command, task *string) {
 	cmd.Flags().StringVar(task, "task", "", taskFlagUsage)
+	_ = cmd.RegisterFlagCompletionFunc("task", r.completeTasks)
 }
 
 func (r *runner) worktreeAddCommand() *cobra.Command {
@@ -207,12 +208,15 @@ func (r *runner) worktreeAddCommand() *cobra.Command {
 			return r.runAdd(cmd, opts)
 		},
 	}
-	addTaskFlag(cmd, &opts.Task)
+	r.addTaskFlag(cmd, &opts.Task)
 	cmd.Flags().StringVar(&opts.Repo, "repo", "", "repos/ にある bare repo の名前")
 	cmd.Flags().StringVar(&opts.Branch, "branch", "", "ブランチ名")
 	cmd.Flags().StringVar(&opts.Base, "base", "", "--create の起点(origin/main など)")
 	cmd.Flags().BoolVarP(&opts.Create, "create", "c", false, "新規ブランチを作る")
 	cmd.Flags().BoolVar(&opts.ReadOnly, "readonly", false, "origin/<branch> を detached で _readonly/ に作る")
+	_ = cmd.RegisterFlagCompletionFunc("repo", r.completeRepos)
+	_ = cmd.RegisterFlagCompletionFunc("branch", r.completeAddBranch(&opts))
+	_ = cmd.RegisterFlagCompletionFunc("base", r.completeBase(&opts))
 	return cmd
 }
 
@@ -278,10 +282,12 @@ func (r *runner) worktreeRenameCommand() *cobra.Command {
 			return r.runRename(cmd, opts)
 		},
 	}
-	addTaskFlag(cmd, &opts.Task)
+	r.addTaskFlag(cmd, &opts.Task)
 	cmd.Flags().StringVar(&opts.Repo, "repo", "", "repos/ にある bare repo の名前")
 	cmd.Flags().StringVar(&opts.Branch, "branch", "", "現在のブランチ名")
 	cmd.Flags().StringVar(&opts.To, "to", "", "新しいブランチ名")
+	_ = cmd.RegisterFlagCompletionFunc("repo", r.completeRepos)
+	_ = cmd.RegisterFlagCompletionFunc("branch", r.completeRenameBranch(&opts))
 	return cmd
 }
 
@@ -327,7 +333,7 @@ func (r *runner) worktreeLsCommand() *cobra.Command {
 			return nil
 		},
 	}
-	addTaskFlag(cmd, &task)
+	r.addTaskFlag(cmd, &task)
 	return cmd
 }
 
@@ -345,7 +351,7 @@ func (r *runner) worktreeLintCommand() *cobra.Command {
 			return r.reportIssues(r.app.LintTask(cmd.Context(), resolved))
 		},
 	}
-	addTaskFlag(cmd, &task)
+	r.addTaskFlag(cmd, &task)
 	return cmd
 }
 
@@ -373,7 +379,7 @@ func (r *runner) worktreePullCommand() *cobra.Command {
 			return nil
 		},
 	}
-	addTaskFlag(cmd, &task)
+	r.addTaskFlag(cmd, &task)
 	return cmd
 }
 

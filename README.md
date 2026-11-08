@@ -18,6 +18,12 @@ go install github.com/ayame113/my-workspace-manager/cmd/ws@latest
 
 `$(go env GOPATH)/bin`(既定は `~/go/bin`)に入るので、PATH に入れる。更新するときは同じコマンドを再実行する。
 
+シェル補完を使うなら、`~/.zshrc` に次を書く(bash / fish は `ws completion --help`)。サブコマンドとフラグに加え、`--task` / `--repo` / `--branch` / `--base` の値も補完する。
+
+```sh
+source <(ws completion zsh)
+```
+
 ### スキル
 
 `ws` に同梱したスキルを、ユーザー単位のスキルディレクトリに書き出す。ws を更新したら同じコマンドを再実行して上書きする。
@@ -43,17 +49,19 @@ Claude Code では、代わりにプラグインとして入れることもで�
 | --- | --- |
 | `ws new [<task>]` | `tasks/<task>/` を作る。引数なしで対話可能なら、repo と task 名を尋ねて worktree もまとめて作る |
 | `ws clone <url> [<repo>]` | bare repo を `repos/` に用意する |
-| `ws ls` | 全 task の一覧(1 task 1 行。worktree 数と dirty 数) |
+| `ws ls` | 全 task の一覧(1 task 1 行。worktree 数と dirty 数。最近作業した順) |
 | `ws lint` | workspace 全体の規約違反・壊れた worktree を検査する |
 | `ws compact [--dry-run]` | 全 task の node_modules 内の同一ファイルを clonefile で共有し、容量を減らす |
 | `ws worktree add [--repo <repo>] [--branch <branch>] [-c --base <start-point> \| --readonly]` | worktree を作る。足りない引数は対話で尋ねる |
 | `ws worktree rename [--repo <repo>] [--branch <old>] [--to <new>]` | 作業用 worktree のブランチ名を変える。slug が変わればディレクトリも移動する。足りない引数は対話で尋ねる |
-| `ws worktree ls` | task 内の worktree の一覧 |
+| `ws worktree ls` | task 内の worktree の一覧(作業用、readonly の順。それぞれ最近作業した順) |
 | `ws worktree lint` | task 内の規約違反・壊れた worktree を検査する |
 | `ws worktree pull` | fetch して task 内の worktree を fast-forward で追従させる |
 | `ws skill install [claude\|codex]...` | ws-task スキルをユーザー単位でインストール・更新する。引数なしなら対話で選ぶ |
 
 `ws worktree` 配下のコマンドは `--task <task>` を省略するとカレントディレクトリが属する task を使う。task の外で、対話可能なら一覧から選ばせる(`ls` / `lint` / `pull` も同じ)。詳しくは `ws --help` / `ws worktree --help` / `ws worktree <command> --help`。
+
+「最近作業した順」は、各 worktree の git の index と HEAD のログの更新日時で決める(add、commit、checkout、status などで更新される)。ファイルを編集しただけでは変わらない。worktree の無い task はディレクトリの更新日時を使う。対話で task を選ぶ一覧も同じ順。
 
 `ws lint` は全 task の検査に加え、git に登録されているがディレクトリが無いもののうち、どの task にも属さないものも報告する。`ws worktree lint` は指定した task の分だけを報告する。lint は報告だけで修正はしない。直せるものには、実行すべき git コマンドを `fix:` に表示する。
 

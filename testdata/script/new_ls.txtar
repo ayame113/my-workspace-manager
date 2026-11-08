@@ -25,8 +25,8 @@ stderr 'task 名は'
 stderr 'task 名は'
 
 -- want-ls.txt --
-empty                  0 worktrees                clean
 my-workspace-manager   2 worktrees (1 readonly)   1 dirty
 some-task              3 worktrees                clean
+empty                  0 worktrees                clean
 -- want-new-existing.txt --
 task 'empty' は既に存在します: $WS_ROOT/tasks/empty

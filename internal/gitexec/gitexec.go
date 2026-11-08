@@ -73,7 +73,8 @@ func RefExists(ctx context.Context, r Runner, bare, ref string) (bool, error) {
 }
 
 func IsDirty(ctx context.Context, r Runner, worktree string) (bool, error) {
-	out, err := Output(ctx, r, worktree, "status", "--porcelain")
+	// status は index を書き戻すことがあり、ws ls を実行しただけで更新順が変わってしまう
+	out, err := Output(ctx, r, worktree, "--no-optional-locks", "status", "--porcelain")
 	return out != "", err
 }
 
