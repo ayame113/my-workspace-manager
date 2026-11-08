@@ -20,6 +20,8 @@ wsrc 2 worktree bogus
 wsrc 2 add --repo r --branch b
 wsrc 2 worktree ls --all
 wsrc 2 worktree lint --task --bogus
+wsrc 2 skill
+wsrc 2 skill install bogus
 
 # help と version は 0
 wsrc 0 --help

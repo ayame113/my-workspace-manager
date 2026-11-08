@@ -140,6 +140,11 @@ func (p *Prompter) chooseMany(ctx context.Context, title string, options []strin
 	return chosen, nil
 }
 
+// ChooseSkillTargets asks which agents to install the skills for.
+func (p *Prompter) ChooseSkillTargets(ctx context.Context) ([]string, error) {
+	return p.chooseMany(ctx, "スキルのインストール先(Space で選択)", app.SkillTargets)
+}
+
 // Add asks for the fields of partial that are empty.
 func (p *Prompter) Add(ctx context.Context, partial app.AddOptions) (app.AddOptions, error) {
 	opts := partial

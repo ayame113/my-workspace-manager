@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -33,6 +34,7 @@ func (r *runner) rootCommand() *cobra.Command {
 		r.lintCommand(),
 		r.compactCommand(),
 		r.worktreeCommand(),
+		r.skillCommand(),
 	)
 	return root
 }
@@ -376,4 +378,50 @@ func (r *runner) worktreePullCommand() *cobra.Command {
 	}
 	addTaskFlag(cmd, &task)
 	return cmd
+}
+
+func (r *runner) skillCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "skill",
+		Short: "エージェント向けのスキルを扱う",
+		RunE:  requireSubcommand,
+	}
+	cmd.AddCommand(r.skillInstallCommand())
+	return cmd
+}
+
+func (r *runner) skillInstallCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:       "install [claude|codex]...",
+		Short:     "ws-task スキルをユーザー単位でインストール・更新する(claude: ~/.claude/skills、codex: ~/.agents/skills。引数なしなら対話で選ぶ)",
+		Args:      cobra.OnlyValidArgs,
+		ValidArgs: app.SkillTargets,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			targets := slices.Compact(slices.Sorted(slices.Values(args)))
+			if len(targets) == 0 {
+				if !r.interactive() {
+					return usagef("インストール先(%s)を指定してください", strings.Join(app.SkillTargets, " / "))
+				}
+				chosen, err := r.prompter().ChooseSkillTargets(cmd.Context())
+				if err != nil {
+					return err
+				}
+				targets = chosen
+			}
+			if len(targets) == 0 {
+				r.printf("何もインストールしませんでした\n")
+				return nil
+			}
+			for _, target := range targets {
+				installed, err := r.app.InstallSkills(target)
+				if err != nil {
+					return err
+				}
+				for _, dir := range installed {
+					r.printf("インストールしました(%s): %s\n", target, dir)
+				}
+			}
+			return nil
+		},
+	}
 }

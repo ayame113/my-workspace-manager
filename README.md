@@ -1,6 +1,6 @@
 # my-workspace-manager
 
-git worktree をタスク単位で管理する個人用 CLI `ws` と、それを Claude Code から使うためのスキル(`skills/ws-task`)。
+git worktree をタスク単位で管理する個人用 CLI `ws` と、それを Claude Code や Codex から使うためのスキル(`skills/ws-task`)。
 
 `~/ws/repos/<repo>.git` に bare repo を置き、タスクごとのディレクトリ `~/ws/tasks/<task>/` に作業用 worktree(`<repo>--<branch-slug>`)と参照用の readonly worktree(`_readonly/`)を並べる。node_modules は普段どおり `npm ci` / `npm i` で用意し、容量が気になったら `ws compact` で worktree 間の同一ファイルを APFS の clonefile で共有して減らす。規約や運用の詳細は [skills/ws-task/SKILL.md](skills/ws-task/SKILL.md) を参照。
 
@@ -18,7 +18,17 @@ go install github.com/ayame113/my-workspace-manager/cmd/ws@latest
 
 `$(go env GOPATH)/bin`(既定は `~/go/bin`)に入るので、PATH に入れる。更新するときは同じコマンドを再実行する。
 
-### Claude Code のスキル
+### スキル
+
+`ws` に同梱したスキルを、ユーザー単位のスキルディレクトリに書き出す。ws を更新したら同じコマンドを再実行して上書きする。
+
+```sh
+ws skill install claude   # ~/.claude/skills/ws-task
+ws skill install codex    # ~/.agents/skills/ws-task
+ws skill install          # 対話で選ぶ
+```
+
+Claude Code では、代わりにプラグインとして入れることもできる(両方入れるとスキルが重複するので、どちらか一方にする)。
 
 ```
 /plugin marketplace add ayame113/my-workspace-manager
@@ -41,6 +51,7 @@ go install github.com/ayame113/my-workspace-manager/cmd/ws@latest
 | `ws worktree ls` | task 内の worktree の一覧 |
 | `ws worktree lint` | task 内の規約違反・壊れた worktree を検査する |
 | `ws worktree pull` | fetch して task 内の worktree を fast-forward で追従させる |
+| `ws skill install [claude\|codex]...` | ws-task スキルをユーザー単位でインストール・更新する。引数なしなら対話で選ぶ |
 
 `ws worktree` 配下のコマンドは `--task <task>` を省略するとカレントディレクトリが属する task を使う。task の外で、対話可能なら一覧から選ばせる(`ls` / `lint` / `pull` も同じ)。詳しくは `ws --help` / `ws worktree --help` / `ws worktree <command> --help`。
 
@@ -52,7 +63,7 @@ go install github.com/ayame113/my-workspace-manager/cmd/ws@latest
 
 ### 対話入力
 
-`ws new`(引数なし)、`ws worktree add`、`ws worktree rename` は、必須の引数が足りないときに [huh](https://github.com/charmbracelet/huh) で対話的に尋ねる。部分的に指定した引数はそのまま使い、足りないものだけを尋ねる。
+`ws new`(引数なし)、`ws worktree add`、`ws worktree rename`、`ws skill install`(引数なし)は、必須の引数が足りないときに [huh](https://github.com/charmbracelet/huh) で対話的に尋ねる。部分的に指定した引数はそのまま使い、足りないものだけを尋ねる。
 
 - 対話は stdin と stderr の両方が端末で、かつ `CLAUDECODE` が未設定のときだけ出る。それ以外(パイプ、スクリプト、エージェント)では、足りない引数は使い方の誤り(終了コード 2)になる。
 - `add`: task(カレントディレクトリから決まらなければ一覧から)→ repo(`repos/*.git`)→ 種類(既存ブランチ / 新規ブランチ / readonly)→ ブランチ。既存ブランチはローカルと origin のブランチから絞り込みで選ぶ。新規ブランチは名前(`git check-ref-format` で検証)と起点(origin のブランチ。既定は `origin/HEAD`、無ければ `origin/main`)を尋ねる。

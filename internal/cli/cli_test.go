@@ -52,6 +52,9 @@ type fakePrompter struct {
 	chooseTaskOut   string
 	newCalls        int
 	newOut          app.NewTaskOptions
+
+	skillTargetCalls int
+	skillTargetsOut  []string
 }
 
 func (p *fakePrompter) ChooseTask(ctx context.Context) (string, error) {
@@ -62,6 +65,11 @@ func (p *fakePrompter) ChooseTask(ctx context.Context) (string, error) {
 func (p *fakePrompter) New(ctx context.Context) (app.NewTaskOptions, error) {
 	p.newCalls++
 	return p.newOut, p.err
+}
+
+func (p *fakePrompter) ChooseSkillTargets(ctx context.Context) ([]string, error) {
+	p.skillTargetCalls++
+	return p.skillTargetsOut, p.err
 }
 
 func (p *fakePrompter) Add(ctx context.Context, partial app.AddOptions) (app.AddOptions, error) {
@@ -112,6 +120,8 @@ func newHarness(t *testing.T, opts envOptions) *harness {
 			switch {
 			case name == "WS_ROOT":
 				return root
+			case name == "HOME":
+				return root
 			case name == "CLAUDECODE" && opts.claudeCode:
 				return "1"
 			}
@@ -156,6 +166,9 @@ func TestExitCodes(t *testing.T) {
 		{"worktree alone", []string{"worktree"}, 2},
 		{"worktree unknown", []string{"worktree", "bogus"}, 2},
 		{"task flag swallowing flag", []string{"worktree", "lint", "--task", "--bogus"}, 2},
+		{"skill alone", []string{"skill"}, 2},
+		{"skill install without target", []string{"skill", "install"}, 2},
+		{"skill install unknown target", []string{"skill", "install", "bogus"}, 2},
 		{"help", []string{"--help"}, 0},
 		{"subcommand help", []string{"worktree", "add", "--help"}, 0},
 		{"version", []string{"-V"}, 0},
@@ -417,6 +430,41 @@ func TestNewInteractive(t *testing.T) {
 			}
 			if h.prompter.newCalls != 0 {
 				t.Error("prompter must not be called")
+			}
+		})
+	}
+}
+
+func TestSkillInstall(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		env       envOptions
+		args      []string
+		chosen    []string
+		wantAsked bool
+		wantDirs  []string
+	}{
+		{"targets given", envOptions{}, []string{"skill", "install", "codex", "claude", "codex"}, nil, false, []string{".claude/skills", ".agents/skills"}},
+		{"chosen interactively", envOptions{tty: true}, []string{"skill", "install"}, []string{"codex"}, true, []string{".agents/skills"}},
+		{"nothing chosen", envOptions{tty: true}, []string{"skill", "install"}, nil, true, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newHarness(t, tt.env)
+			h.prompter.skillTargetsOut = tt.chosen
+			if got := h.run(tt.args...); got != 0 {
+				t.Fatalf("exit code = %d\nstderr: %s", got, h.stderr.String())
+			}
+			if asked := h.prompter.skillTargetCalls > 0; asked != tt.wantAsked {
+				t.Errorf("asked = %v, want %v", asked, tt.wantAsked)
+			}
+			for _, dir := range []string{".claude/skills", ".agents/skills"} {
+				_, err := os.Stat(filepath.Join(h.root, dir, "ws-task/SKILL.md"))
+				if want := slices.Contains(tt.wantDirs, dir); (err == nil) != want {
+					t.Errorf("%s installed = %v, want %v", dir, err == nil, want)
+				}
 			}
 		})
 	}
