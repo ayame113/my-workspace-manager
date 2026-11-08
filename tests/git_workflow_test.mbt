@@ -281,8 +281,7 @@ async test "usage errors exit with 2" {
       ["new"],
       ["new", "a", "b"],
       ["clone"],
-      ["npm"],
-      ["npm", "install"],
+      ["compact", "--task", "t"],
       ["add", "--repo", "r", "--bogus", "--branch", "b"],
       ["add", "--branch", "x"],
       ["add", "--repo", "r", "--branch", "x", "extra"],
@@ -301,7 +300,7 @@ async test "usage errors exit with 2" {
   inspect(
     s.transcript.to_string(),
     content=(
-      #|2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2
+      #|2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2
       #|help rc=0
       #|
     ),

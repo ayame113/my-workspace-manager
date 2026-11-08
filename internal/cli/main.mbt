@@ -16,7 +16,7 @@ async fn execute(invocation : Invocation) -> Int32 {
   match invocation {
     New(task~) => cmd_new(task)
     Clone(url~, repo~) => cmd_clone(url, repo)
-    Add(task~, repo~, branch~, base~, read_only~, install~) =>
+    Add(task~, repo~, branch~, base~, read_only~) =>
       cmd_add(
         @layout.resolve_existing_task(
           task, "--task <task> を指定してください",
@@ -25,11 +25,10 @@ async fn execute(invocation : Invocation) -> Int32 {
         branch,
         base~,
         read_only~,
-        install~,
       )
     Pull(task~) => cmd_pull(task)
     Ls(target) => cmd_ls(resolve(target))
-    NpmCi(npm_args~) => cmd_npm_ci(npm_args)
+    Compact(dry_run~) => @compact.run(dry_run~)
     Lint(target, fix~) => @lint.run(resolve(target), fix)
   }
 }
@@ -37,7 +36,7 @@ async fn execute(invocation : Invocation) -> Int32 {
 ///|
 /// `ws` のコマンドライン(プログラム名を除く)を実行し、終了コードを返す。
 /// 0: 成功(help / --version を含む)、1: 実行時の失敗(lint で未解決の問題がある場合を含む)、
-/// 2: 使い方の誤り。`npm ci` が失敗した場合は npm の終了コード(シグナル終了なら 1)。
+/// 2: 使い方の誤り。
 pub async fn run(argv : Array[String]) -> Int32 {
   match parse(argv) {
     Print(text) => {

@@ -61,7 +61,6 @@ let command : @argparse.Command = Command(
           about="origin/<branch> を detached で _readonly/ に作る",
           conflicts_with=["create", "base"],
         ),
-        FlagArg("no-install", about="node_modules を用意しない"),
       ],
     ),
     Command(
@@ -72,23 +71,19 @@ let command : @argparse.Command = Command(
     Command("ls", about="worktree の一覧", options=[task_option()], flags=[
       all_flag(),
     ]),
-    Command("npm", about="npm のラッパー", subcommand_required=true, subcommands=[
-      Command(
-        "ci",
-        about="node_modules を共有キャッシュ経由で用意する",
-        positionals=[
-          PositionArg(
-            "npm-args",
-            about="npm ci にそのまま渡す引数(指定するとキャッシュを使わない)",
-            num_args=ValueRange(lower=0),
-            allow_hyphen_values=true,
-          ),
-        ],
-      ),
-    ]),
+    Command(
+      "compact",
+      about="全 task の node_modules 内の同一ファイルを clonefile で共有し、容量を減らす",
+      flags=[
+        FlagArg(
+          "dry-run",
+          about="置き換えずに、対象件数と削減見込みだけ表示する",
+        ),
+      ],
+    ),
     Command(
       "lint",
-      about="規約違反と node_modules の状態を検査する",
+      about="規約違反と壊れた worktree を検査する",
       options=[task_option()],
       flags=[
         all_flag(),
@@ -117,12 +112,11 @@ priv enum Invocation {
     repo~ : String,
     branch~ : String,
     base~ : String?,
-    read_only~ : Bool,
-    install~ : Bool
+    read_only~ : Bool
   )
   Pull(task~ : String?)
   Ls(Target)
-  NpmCi(npm_args~ : Array[String])
+  Compact(dry_run~ : Bool)
   Lint(Target, fix~ : Bool)
 }
 
@@ -164,13 +158,11 @@ fn parse(argv : Array[String]) -> ParseResult {
         branch=text("branch").unwrap_or(""),
         base=text("base"),
         read_only=flag("readonly"),
-        install=!flag("no-install"),
       )
     "pull" => Pull(task=text("task"))
     "ls" => Ls(target())
     "lint" => Lint(target(), fix=flag("fix"))
-    "npm" if args.subcommand is Some((_, ci)) =>
-      NpmCi(npm_args=ci.values.get("npm-args").unwrap_or([]))
+    "compact" => Compact(dry_run=flag("dry-run"))
     _ => return Usage(command.render_help())
   }
   Run(invocation)

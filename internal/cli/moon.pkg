@@ -1,8 +1,7 @@
 import {
   "moonbitlang/core/argparse",
-  "moonbitlang/core/env",
   "moonbitlang/core/async/fs",
-  "my-workspace-manager/ws/internal/cache",
+  "my-workspace-manager/ws/internal/compact",
   "my-workspace-manager/ws/internal/errors",
   "my-workspace-manager/ws/internal/git",
   "my-workspace-manager/ws/internal/layout",

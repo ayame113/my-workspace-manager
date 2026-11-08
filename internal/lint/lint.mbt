@@ -9,91 +9,14 @@ priv struct Issue {
 }
 
 ///|
-priv struct Context {
-  issues : Array[Issue]
-  referenced_keys : Set[String]
-  mut unscannable : Int32
-}
-
-///|
-/// 1 つの worktree についての問題を記録する関数を返す。
-fn Context::reporter(
-  self : Context,
+/// 1 つの worktree についての問題を `issues` に記録する関数を返す。
+fn reporter(
+  issues : Array[Issue],
   task : String,
   worktree : String,
 ) -> (String, String, String, (async () -> Unit)?) -> Unit {
   (kind, message, fix, action) => {
-    self.issues.push({ task, worktree, kind, message, fix, action, })
-  }
-}
-
-///|
-async fn lint_node_modules(
-  context : Context,
-  report : (String, String, String, (async () -> Unit)?) -> Unit,
-  worktree : String,
-) -> Unit {
-  for package_dir in @cache.lockfile_directories(worktree) {
-    let location = match package_dir.strip_prefix(worktree + "/") {
-      Some(relative) => relative.to_owned()
-      None => "."
-    }
-    let marker = @cache.read_marker(package_dir)
-    if marker is Some(key) {
-      context.referenced_keys.add(key)
-    }
-    let rerun = "手動対応: cd \{package_dir} && ws npm ci"
-    if !@sys.exists("\{package_dir}/node_modules") {
-      report(
-        "node_modules",
-        "\{location}: node_modules がありません",
-        rerun,
-        None,
-      )
-      continue
-    }
-    if !node_modules_matches_lockfile(package_dir) {
-      report(
-        "node_modules",
-        "\{location}: node_modules が package-lock.json と一致しません",
-        rerun,
-        None,
-      )
-      continue
-    }
-    let key = @cache.compute_cache_key(package_dir) catch {
-      @errors.WsError(message) => {
-        report(
-          "node_modules",
-          "\{location}: \{message}",
-          "手動対応: node のバージョン設定(nodenv)を確認する",
-          None,
-        )
-        continue
-      }
-      error => raise error
-    }
-    if marker == Some(key) {
-      continue
-    }
-    let reason = if marker is None {
-      "共有キャッシュ未使用"
-    } else {
-      "目印のキーが古い"
-    }
-    report(
-      "node_modules",
-      "\{location}: 置き換え可能(\{reason})",
-      "キャッシュにあればクローンに置換、無ければ登録して目印を置く(実行中のプロセスがあると壊れる)",
-      Some(async fn() {
-        let key = @cache.compute_cache_key(package_dir)
-        if @cache.cache_has(key) {
-          ignore(@cache.place_from_cache(package_dir, key))
-        } else {
-          @cache.register_in_cache(package_dir, key)
-        }
-      }),
-    )
+    issues.push({ task, worktree, kind, message, fix, action, })
   }
 }
 
@@ -119,13 +42,14 @@ async fn realpath_or_none(path : String) -> String? {
 
 ///|
 async fn lint_worktree(
-  context : Context,
+  issues : Array[Issue],
   task : String,
   directory : String,
   name : String,
   read_only~ : Bool,
 ) -> Unit {
-  let report = context.reporter(
+  let report = reporter(
+    issues,
     task,
     if read_only {
       "_readonly/\{name}"
@@ -141,14 +65,12 @@ async fn lint_worktree(
       "naming", "`<repo>--<slug>` 形式のディレクトリ名ではありません",
       "名前を確認し、不要なら削除",
     )
-    context.unscannable += 1
     return
   }
   guard read_gitdir(directory) is Some(gitdir) else {
     manual(
       "broken-worktree", "git が worktree として認識しません", "不要なら削除し、必要なら ws add で作り直す",
     )
-    context.unscannable += 1
     return
   }
   let actual_bare = realpath_or_none(
@@ -217,14 +139,13 @@ async fn lint_worktree(
       "ブランチを checkout する",
     )
   }
-  lint_node_modules(context, report, directory)
 }
 
 ///|
-async fn lint_task(context : Context, task : String) -> Unit {
+async fn lint_task(issues : Array[Issue], task : String) -> Unit {
   let directory = @layout.task_dir(task)
   if !@layout.is_valid_task_name(task) {
-    context.reporter(task, "-")(
+    reporter(issues, task, "-")(
       "naming",
       "task 名が規則([a-z0-9-]、連続・先頭末尾ハイフン不可)に違反しています",
       "手動対応: task 名の変更はしない方針なので内容を確認する",
@@ -233,18 +154,12 @@ async fn lint_task(context : Context, task : String) -> Unit {
   }
   for name in @sys.subdirectory_names(directory) {
     if name != "_readonly" {
-      lint_worktree(
-        context,
-        task,
-        "\{directory}/\{name}",
-        name,
-        read_only=false,
-      )
+      lint_worktree(issues, task, "\{directory}/\{name}", name, read_only=false)
       continue
     }
     for readonly_name in @sys.subdirectory_names("\{directory}/_readonly") {
       lint_worktree(
-        context,
+        issues,
         task,
         "\{directory}/_readonly/\{readonly_name}",
         readonly_name,
@@ -255,7 +170,7 @@ async fn lint_task(context : Context, task : String) -> Unit {
 }
 
 ///|
-async fn lint_dangling_registrations(context : Context) -> Unit {
+async fn lint_dangling_registrations(issues : Array[Issue]) -> Unit {
   let repos = @layout.repos_root()
   if !@sys.exists(repos) {
     return
@@ -280,7 +195,7 @@ async fn lint_dangling_registrations(context : Context) -> Unit {
         Some(relative) => relative.split("/").next().unwrap().to_owned()
         None => "-"
       }
-      context.reporter(task, @path.Path(worktree).basename().to_owned())(
+      reporter(issues, task, @path.Path(worktree).basename().to_owned())(
         "broken-worktree",
         "git に登録されていますがディレクトリがありません: \{worktree}",
         "git worktree prune を実行",
@@ -293,54 +208,26 @@ async fn lint_dangling_registrations(context : Context) -> Unit {
 }
 
 ///|
-async fn lint_unreferenced_caches(context : Context) -> Unit {
-  if context.unscannable > 0 {
-    return
-  }
-  for key in @cache.cache_entry_names() {
-    if !key.has_prefix(".") && !context.referenced_keys.contains(key) {
-      context.reporter("-", key)(
-        "unreferenced-cache",
-        "どの worktree の目印からも参照されていないキャッシュです",
-        "キャッシュを削除",
-        Some(async fn() { @sys.remove_tree(@cache.cache_entry_path(key)) }),
-      )
-    }
-  }
-}
-
-///|
 /// 検査して結果を表示し、`fix` なら自動修正する。`task` が `None` なら全 task と未参照キャッシュを検査する。
 /// 未解決の問題が無ければ 0、あれば 1 を返す。
 pub async fn run(task : String?, fix : Bool) -> Int32 {
-  let context : Context = {
-    issues: [],
-    referenced_keys: Set([]),
-    unscannable: 0,
-  }
+  let issues : Array[Issue] = []
   match task {
-    Some(task) => lint_task(context, task)
-    None => {
+    Some(task) => lint_task(issues, task)
+    None =>
       if @sys.exists(@layout.tasks_root()) {
         for task in @sys.subdirectory_names(@layout.tasks_root()) {
-          lint_task(context, task)
+          lint_task(issues, task)
         }
       }
-      lint_unreferenced_caches(context)
-    }
   }
-  lint_dangling_registrations(context)
-  if context.issues.is_empty() {
+  lint_dangling_registrations(issues)
+  if issues.is_empty() {
     @sys.log("問題はありません")
     return 0
   }
-  if fix {
-    @sys.log(
-      "注意: --fix の node_modules 置換は、実行中のプロセス(dev server 等)があると壊れます\n",
-    )
-  }
   let mut unresolved = 0
-  for issue in context.issues {
+  for issue in issues {
     @sys.log(
       "[\{issue.task}] \{issue.worktree}\n  種類: \{issue.kind}\n  内容: \{issue.message}\n  fix: \{issue.fix}",
     )
@@ -371,7 +258,7 @@ pub async fn run(task : String?, fix : Bool) -> Int32 {
     }
   }
   let summary = if fix { "(未解決 \{unresolved} 件)" } else { "" }
-  @sys.log("\n\{context.issues.length()} 件の問題\{summary}")
+  @sys.log("\n\{issues.length()} 件の問題\{summary}")
   if unresolved == 0 {
     0
   } else {

@@ -1,5 +1,7 @@
 import {
   "moonbitlang/core/env",
+  "moonbitlang/core/path",
+  "my-workspace-manager/ws/internal/sys",
   "moonbitlang/core/string",
   "moonbitlang/core/encoding/utf8",
   "moonbitlang/core/async",

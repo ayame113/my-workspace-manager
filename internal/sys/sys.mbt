@@ -14,6 +14,49 @@ pub fn clonefile(source : String, destination : String) -> Bool {
 }
 
 ///|
+#borrow(path, out)
+extern "C" fn c_lstat(path : Bytes, out : FixedArray[Int64]) -> Int32 = "ws_lstat"
+
+///|
+#borrow(path)
+extern "C" fn c_available_bytes(path : Bytes) -> Int64 = "ws_available_bytes"
+
+///|
+/// `lstat(2)` の結果のうち ws が使うもの。
+pub(all) struct Stat {
+  is_regular : Bool
+  size : Int64
+  mode : Int32
+  device : Int64
+  inode : Int64
+  ctime_ns : Int64
+}
+
+///|
+/// symlink は辿らない。調べられなければ `None`。
+pub fn lstat(path : String) -> Stat? {
+  let out = FixedArray::make(6, 0L)
+  guard c_lstat(c_string(path), out) == 0 else { return None }
+  Some({
+    is_regular: out[0] == 1L,
+    size: out[1],
+    mode: out[2].to_int(),
+    device: out[3],
+    inode: out[4],
+    ctime_ns: out[5],
+  })
+}
+
+///|
+/// `path` を含むファイルシステムの空き容量(バイト)。取れなければ `None`。
+pub fn available_bytes(path : String) -> Int64? {
+  match c_available_bytes(c_string(path)) {
+    -1L => None
+    bytes => Some(bytes)
+  }
+}
+
+///|
 // println はバッファされ、stdio を継承した子プロセスの出力と順序が入れ替わるので fd に直接書く。
 // 読み手が先に終了しても(`ws ls | head -1`)処理を止めないよう、閉じたパイプへの出力は捨てる
 async fn write(output : @stdio.Output, text : String) -> Unit {
@@ -73,16 +116,6 @@ pub async fn run_captured(
 }
 
 ///|
-/// stdio を継承して実行し、終了コードを返す(シグナル終了は負)。起動できなければ例外。
-pub async fn run_inheriting(
-  command : String,
-  args : Array[String],
-  cwd? : String,
-) -> Int32 {
-  @process.run(command, args, cwd?=cwd.map(dir => dir[:])).exit_code
-}
-
-///|
 /// symlink は辿る。調べられない場合も false。
 pub async fn exists(path : String) -> Bool {
   @fs.exists(path) catch {
@@ -109,19 +142,6 @@ pub async fn subdirectory_names(directory : String) -> Array[String] {
     }
   }
   sorted(names)
-}
-
-///|
-/// 無ければ何もしない。
-pub async fn remove_tree(path : String) -> Unit {
-  if !exists(path) {
-    return
-  }
-  if @fs.kind(path, follow_symlink=false) == Directory {
-    @fs.rmdir(path, recursive=true)
-  } else {
-    @fs.remove(path)
-  }
 }
 
 ///|

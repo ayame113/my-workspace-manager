@@ -1,5 +1,5 @@
 // 統合テスト: 実際の ws をビルドし、一時ディレクトリのローカル file:// リモートに対して実行する。
-// ネットワークには触れない(npm は file: 依存 + offline)
+// ネットワークには触れない
 
 ///|
 let ws_binary : @async.Lazy[String] = @async.Lazy(async fn() {
@@ -54,10 +54,6 @@ async fn Sandbox::new() -> Sandbox {
       "GIT_COMMITTER_EMAIL": "a@b",
       "GIT_AUTHOR_DATE": date,
       "GIT_COMMITTER_DATE": date,
-      "npm_config_audit": "false",
-      "npm_config_fund": "false",
-      "npm_config_offline": "true",
-      "npm_config_update_notifier": "false",
     } {
     env[name] = value
   }
@@ -81,11 +77,7 @@ async fn Sandbox::cleanup(self : Sandbox) -> Unit nocancel {
 
 ///|
 fn Sandbox::normalize(self : Sandbox, text : String) -> String {
-  let patterns = [
-    ("[0-9a-f]{64}", "<sha256>"),
-    ("-abi[0-9]+-[a-z0-9]+-[a-z0-9]+", "-abi<node>"),
-    ("added 1 package in [0-9.]+m?s", "added 1 package"),
-  ]
+  let patterns = [("空き容量: [^\n]*", "空き容量: <df>")]
   patterns.fold(init=text.replace_all(old=self.root, new="$S"), (text, pattern) => {
     let regex = @string.Regex(pattern.0) catch { _ => panic() }
     regex.replace_by(text, _ => pattern.1).to_owned()
@@ -122,7 +114,7 @@ async fn Sandbox::exec(
 }
 
 ///|
-/// ws を実行して、stdout・stderr の最初の行(npm 自身の出力を除く)・終了コードを記録する。
+/// ws を実行して、stdout・stderr の最初の行・終了コードを記録する。
 async fn Sandbox::ws(
   self : Sandbox,
   args : Array[String],
@@ -130,10 +122,7 @@ async fn Sandbox::ws(
 ) -> Outcome {
   let outcome = self.exec(ws_binary.wait(), args, cwd?)
   self.transcript.write_string(outcome.stdout)
-  if outcome.stderr
-    .split("\n")
-    .find_first(line => line != "" && !line.has_prefix("npm "))
-    is Some(line) {
+  if outcome.stderr.split("\n").find_first(line => line != "") is Some(line) {
     self.note("! \{line}")
   }
   self.note("rc=\{outcome.code}")

@@ -62,7 +62,6 @@ async fn cmd_add(
   branch : String,
   base~ : String?,
   read_only~ : Bool,
-  install~ : Bool,
 ) -> Int32 {
   let bare = @layout.require_bare(repo)
   let slug = @layout.slug_or_raise(branch)
@@ -109,28 +108,7 @@ async fn cmd_add(
     raise missing_branch_error(branch)
   }
   @sys.log("作成しました: \{worktree}")
-  if install && @cache.install_node_modules_in_worktree(worktree) > 0 {
-    1
-  } else {
-    0
-  }
-}
-
-///|
-async fn cmd_npm_ci(npm_args : Array[String]) -> Int32 {
-  let package_dir = @cache.find_package_dir(
-    @fs.realpath(@env.current_dir().unwrap_or(".")),
-  )
-  match @cache.ensure_node_modules(package_dir, npm_args) {
-    Ok(message) => {
-      @sys.log(message)
-      0
-    }
-    Err(code) => {
-      @sys.log_error("npm ci に失敗しました: \{package_dir}")
-      code
-    }
-  }
+  0
 }
 
 ///|

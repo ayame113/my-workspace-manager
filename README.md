@@ -2,13 +2,12 @@
 
 git worktree をタスク単位で管理する個人用 CLI `ws` と、それを Claude Code から使うためのスキル(`skills/ws-task`)。
 
-`~/ws/repos/<repo>.git` に bare repo を置き、タスクごとのディレクトリ `~/ws/tasks/<task>/` に作業用 worktree(`<repo>--<branch-slug>`)と参照用の readonly worktree(`_readonly/`)を並べる。node_modules は package-lock.json のハッシュと Node の ABI をキーに共有キャッシュし、APFS の clonefile で複製する。規約や運用の詳細は [skills/ws-task/SKILL.md](skills/ws-task/SKILL.md) を参照。
+`~/ws/repos/<repo>.git` に bare repo を置き、タスクごとのディレクトリ `~/ws/tasks/<task>/` に作業用 worktree(`<repo>--<branch-slug>`)と参照用の readonly worktree(`_readonly/`)を並べる。node_modules は普段どおり `npm ci` / `npm i` で用意し、容量が気になったら `ws compact` で worktree 間の同一ファイルを APFS の clonefile で共有して減らす。規約や運用の詳細は [skills/ws-task/SKILL.md](skills/ws-task/SKILL.md) を参照。
 
 ## 前提条件
 
-- macOS 専用(node_modules の複製に APFS の `clonefile(2)` を使うため)
+- macOS 専用(`ws compact` が APFS の `clonefile(2)` を使うため)
 - git
-- npm / node(node_modules キャッシュを使う場合。nodenv の `.node-version` に従う)
 - [MoonBit ツールチェーン](https://www.moonbitlang.com/download/)。標準ライブラリに `moonbitlang/core/async` を含む版が必要(moonc v0.10.20 で確認)
 
 ## インストール
@@ -36,15 +35,23 @@ moon install https://github.com/ayame113/my-workspace-manager.git cmd/ws
 | --- | --- |
 | `ws new <task>` | `tasks/<task>/` を作る |
 | `ws clone <url> [<repo>]` | bare repo を `repos/` に用意する |
-| `ws add --repo <repo> --branch <branch> [-c --base <start-point> \| --readonly] [--no-install]` | worktree を作り、node_modules を用意する |
+| `ws add --repo <repo> --branch <branch> [-c --base <start-point> \| --readonly]` | worktree を作る |
 | `ws pull` | fetch して task 内の worktree を fast-forward で追従させる |
 | `ws ls [--all]` | worktree の一覧 |
-| `ws npm ci [-- <npm ci の引数>]` | node_modules を共有キャッシュ経由で用意する |
-| `ws lint [--all] [--fix]` | 規約違反・壊れた worktree・node_modules の状態を検査する |
+| `ws compact [--dry-run]` | 全 task の node_modules 内の同一ファイルを clonefile で共有し、容量を減らす |
+| `ws lint [--all] [--fix]` | 規約違反・壊れた worktree を検査する |
 
 `--task` を省略するとカレントディレクトリが属する task を使う。詳しくは `ws --help` / `ws <command> --help`。
 
-終了コードは 0 が成功、1 が実行時の失敗(lint で未解決の問題がある場合を含む)、2 が使い方の誤り。`ws npm ci` で npm が失敗した場合は npm の終了コードを返す。
+終了コードは 0 が成功、1 が実行時の失敗(lint で未解決の問題がある場合を含む)、2 が使い方の誤り。
+
+### ws compact
+
+`$WS_ROOT/tasks` 配下の全 worktree の node_modules(入れ子を含む)にある通常ファイルのうち、サイズ・SHA-256・mode が同じものを、代表ファイルの clonefile(copy-on-write)に原子的に置き換える。symlink と空ファイルは対象外。
+
+- 処理したファイルの inode・ctime・size・ハッシュと共有済みかどうかを `$WS_ROOT/.compact-index` に記録する。2 回目以降は記録と一致する(変更されていない)ファイルのハッシュ計算と置き換えを省き、追加・変更されたファイルだけを処理する(npm は展開時に mtime を固定値にするため ctime を使う)。インデックスを消すと全件処理に戻る。
+- 表示する削減見込みは置き換えたファイルのサイズの合計。`du` はクローンを区別しないので、実際の削減量は表示される実行前後の空き容量の差で見る。
+- 実行中の dev server 等が開いているファイルは旧 inode のまま残るので、影響はほぼ無い。
 
 ### 環境変数
 

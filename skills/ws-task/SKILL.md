@@ -1,6 +1,6 @@
 ---
 name: ws-task
-description: タスク用の作業ディレクトリ(~/ws/tasks/<task>)の作成、git worktree の追加(作業用 / readonly 参照用 / 新規ブランチ)、一覧、ローカル worktree のリモート追従(ws pull)、node_modules の共有キャッシュ(ws npm ci)、規約違反の検査(ws lint)をするときに使う。「タスクを作って」「worktreeを追加」「〇〇ブランチを参照用に」「新しいブランチで作業を始めたい」「worktreeを最新にして」「npm ci して」「workspace を点検して」などの依頼で起動する。
+description: タスク用の作業ディレクトリ(~/ws/tasks/<task>)の作成、git worktree の追加(作業用 / readonly 参照用 / 新規ブランチ)、一覧、ローカル worktree のリモート追従(ws pull)、node_modules の重複排除によるディスク容量の削減(ws compact)、規約違反の検査(ws lint)をするときに使う。「タスクを作って」「worktreeを追加」「〇〇ブランチを参照用に」「新しいブランチで作業を始めたい」「worktreeを最新にして」「容量を減らして」「workspace を点検して」などの依頼で起動する。
 ---
 
 # ws-task: タスク単位の worktree 管理
@@ -66,11 +66,10 @@ ws clone <url> [<repo>]                    # 【ユーザーが実行】bare rep
 ws add --repo <repo> --branch <branch>     # git switch <branch> 相当。作業用 worktree を作る
 ws add --repo <repo> --branch <branch> --create --base <start-point>   # git switch -c 相当(-c は --create の短縮形)。新規ブランチ(upstream なし)
 ws add --repo <repo> --branch <branch> --readonly   # origin/<branch> を detached で _readonly/ に作る
-                                           # いずれも --no-install で node_modules の用意を省略できる
 ws pull                                    # 【ユーザーが実行】fetch して task 内の worktree を追従させる
 ws ls [--all]                             # task の worktree 一覧 / --all は全 task
-ws npm ci [-- <npm ci の引数>]             # node_modules を共有キャッシュ経由で用意する(npm ci の代わり)
-ws lint [--all] [--fix]                   # 規約違反・壊れた worktree・node_modules の状態を検査する
+ws compact [--dry-run]                     # 全 task の node_modules 内の同一ファイルを clonefile で共有し、容量を減らす
+ws lint [--all] [--fix]                   # 規約違反・壊れた worktree を検査する
 ```
 
 - `add` / `pull` / `ls` / `lint` は `--task <task>` で task を指定する。省略するとカレントディレクトリが属する task を使う(`--task .` も同じ)。task の外では `--task`(`ls` / `lint` は `--all` でも可)の指定が必要。`add` は `--repo` と `--branch` が必須で、位置引数は受け付けない。オプションの順序は自由。
@@ -86,21 +85,19 @@ ws lint [--all] [--fix]                   # 規約違反・壊れた worktree・
   - 作業用: upstream があれば `git merge --ff-only`。マージコミットや rebase は作らない。
   - 未コミット変更あり、upstream なし、upstream と分岐、はスキップして理由を表示する。一致するブランチが0件 / 複数件の readonly と、その他の失敗は error として表示され、終了コードは 1 になる。
 
-## node_modules の共有キャッシュ
+## node_modules と容量(ws compact)
 
-worktree ごとに `npm ci` すると遅くディスクも食うため、`$WS_ROOT/.cache/node_modules/` に package-lock.json のハッシュと Node の ABI をキーとしてキャッシュし、APFS の clonefile(copy-on-write)で複製する。ABI は対象ディレクトリで nodenv が選ぶ node(`.node-version`)から取る。
-
-- `npm ci` の代わりに `ws npm ci` を使う(素の `npm ci` だと共有されない)。cwd から上へ辿って最初の package.json のディレクトリが対象。`ws npm ci -- <引数>` の引数は npm ci にそのまま渡り、その場合キャッシュは使わない。
-- `ws add` は worktree 作成後、`git ls-files` で見つかる全 package-lock.json について自動で node_modules を用意する。`--no-install` で省略できる。npm ci に失敗しても worktree は作られ、警告と再実行コマンドを出して終了コード 1 になる。
-- npm は https なので、`ws npm ci` と `ws add` はエージェントが実行してよい(ssh を使わない)。
-- 共有済みの node_modules には `node_modules/.ws-cache-key` が置かれる。
+- node_modules は普段どおり `npm ci` / `npm i` で用意する(ws は関与しない)。npm は https なのでエージェントが実行してよい。
+- 容量が気になったら `ws compact` を実行する。`$WS_ROOT/tasks` 配下の全 worktree の node_modules にある、内容(SHA-256)と mode が同じファイルを、APFS の clonefile(copy-on-write)で同じブロックを共有するファイルに置き換える。`--dry-run` で対象件数と削減見込みだけ確認できる。
+- ネットワークを使わないのでエージェントが実行してよい。実行中の dev server 等が開いているファイルは旧 inode のまま残るので、影響はほぼ無い。
+- 2 回目以降は `$WS_ROOT/.compact-index` の記録を使い、追加・変更されたファイルだけを処理する。
+- `du` はクローンを区別しないので、削減量は表示される空き容量の差で確認する。
 
 ## lint
 
-`ws lint`(`--all` で全 task、省略時は現在の task)は報告のみ、`--fix` で修正する。検出項目は、ディレクトリ名と実ブランチの不一致、upstream が別名ブランチ、readonly の破綻、壊れた worktree、命名規則違反、node_modules の状態(共有済み / 置き換え可能 / lockfile と不一致 / なし / 未参照キャッシュ)。
+`ws lint`(`--all` で全 task、省略時は現在の task)は報告のみ、`--fix` で修正する。検出項目は、ディレクトリ名と実ブランチの不一致、upstream が別名ブランチ、readonly の破綻、壊れた worktree、命名規則違反。
 
-- エージェントは `--fix` を勝手に実行しない。まず `ws lint` で報告し、内容をユーザーに伝えて確認を取る。`--fix` の node_modules 置換は、実行中のプロセス(dev server 等)があると壊れるため。
-- 「lockfile と不一致」「node_modules なし」は `ws npm ci` で解消する。
+- エージェントは `--fix` を勝手に実行しない。まず `ws lint` で報告し、内容をユーザーに伝えて確認を取る。
 
 ## 注意点
 
