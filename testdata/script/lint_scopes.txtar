@@ -17,8 +17,7 @@ cmpenv stdout $WORK/want-ta.txt
 cmpenv stdout $WORK/want-tb.txt
 ! exec ws lint
 cmpenv stdout $WORK/want-all.txt
-exec ws lint --fix
-cmpenv stdout $WORK/want-fixed.txt
+exec git -C $WS_ROOT/repos/myrepo.git worktree prune
 exec ws lint
 cmp stdout $WORK/want-clean.txt
 
@@ -26,48 +25,30 @@ cmp stdout $WORK/want-clean.txt
 [ta] myrepo--a1
   種類: broken-worktree
   内容: git に登録されていますがディレクトリがありません: $WS_ROOT/tasks/ta/myrepo--a1
-  fix: git worktree prune を実行
+  fix: git -C $WS_ROOT/repos/myrepo.git worktree prune
 
 1 件の問題
 -- want-tb.txt --
 [tb] myrepo--b1
   種類: broken-worktree
   内容: git に登録されていますがディレクトリがありません: $WS_ROOT/tasks/tb/myrepo--b1
-  fix: git worktree prune を実行
+  fix: git -C $WS_ROOT/repos/myrepo.git worktree prune
 
 1 件の問題
 -- want-all.txt --
 [-] stray
   種類: broken-worktree
   内容: git に登録されていますがディレクトリがありません: $WORK/outside/p/stray
-  fix: git worktree prune を実行
+  fix: git -C $WS_ROOT/repos/myrepo.git worktree prune
 [ta] myrepo--a1
   種類: broken-worktree
   内容: git に登録されていますがディレクトリがありません: $WS_ROOT/tasks/ta/myrepo--a1
-  fix: git worktree prune を実行
+  fix: git -C $WS_ROOT/repos/myrepo.git worktree prune
 [tb] myrepo--b1
   種類: broken-worktree
   内容: git に登録されていますがディレクトリがありません: $WS_ROOT/tasks/tb/myrepo--b1
-  fix: git worktree prune を実行
+  fix: git -C $WS_ROOT/repos/myrepo.git worktree prune
 
 3 件の問題
--- want-fixed.txt --
-[-] stray
-  種類: broken-worktree
-  内容: git に登録されていますがディレクトリがありません: $WORK/outside/p/stray
-  fix: git worktree prune を実行
-  結果: 修正しました
-[ta] myrepo--a1
-  種類: broken-worktree
-  内容: git に登録されていますがディレクトリがありません: $WS_ROOT/tasks/ta/myrepo--a1
-  fix: git worktree prune を実行
-  結果: 修正しました
-[tb] myrepo--b1
-  種類: broken-worktree
-  内容: git に登録されていますがディレクトリがありません: $WS_ROOT/tasks/tb/myrepo--b1
-  fix: git worktree prune を実行
-  結果: 修正しました
-
-3 件の問題(未解決 0 件)
 -- want-clean.txt --
 問題はありません

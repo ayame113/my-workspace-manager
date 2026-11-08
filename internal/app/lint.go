@@ -18,35 +18,14 @@ type Issue struct {
 	Kind     string
 	Message  string
 	Fix      string
-	fix      func(context.Context) error
-}
-
-type FixOutcome int
-
-const (
-	FixNotRequested FixOutcome = iota
-	Fixed
-	NeedsManual
-	FixFailed
-)
-
-type IssueResult struct {
-	Issue   Issue
-	Outcome FixOutcome
-	Failure string
-}
-
-type LintSummary struct {
-	Total      int
-	Unresolved int
 }
 
 type issueCollector struct {
 	issues []Issue
 }
 
-func (c *issueCollector) add(task, worktree, kind, message, fix string, action func(context.Context) error) {
-	c.issues = append(c.issues, Issue{Task: task, Worktree: worktree, Kind: kind, Message: message, Fix: fix, fix: action})
+func (c *issueCollector) add(task, worktree, kind, message, fix string) {
+	c.issues = append(c.issues, Issue{Task: task, Worktree: worktree, Kind: kind, Message: message, Fix: fix})
 }
 
 func (a *App) readGitDir(ctx context.Context, worktree string) (string, bool, error) {
@@ -67,7 +46,7 @@ func (a *App) lintWorktree(ctx context.Context, c *issueCollector, task, directo
 		label = "_readonly/" + name
 	}
 	manual := func(kind, message, fix string) {
-		c.add(task, label, kind, message, "手動対応: "+fix, nil)
+		c.add(task, label, kind, message, "手動対応: "+fix)
 	}
 	parsed, ok := layout.ParseWorktreeName(name)
 	if !ok {
@@ -109,11 +88,7 @@ func (a *App) lintWorktree(ctx context.Context, c *issueCollector, task, directo
 		if upstream.ExitCode == 0 && upstream.Stdout != "origin/"+branch {
 			c.add(task, label, "upstream-mismatch",
 				fmt.Sprintf("upstream が別名ブランチ '%s' を指しています", upstream.Stdout),
-				"git branch --unset-upstream を実行",
-				func(ctx context.Context) error {
-					_, err := gitexec.Output(ctx, a.git, directory, "branch", "--unset-upstream")
-					return err
-				})
+				"git -C "+directory+" branch --unset-upstream")
 		}
 	default:
 		manual("dir-branch-mismatch", "detached HEAD です(作業用 worktree はブランチ固定)", "ブランチを checkout する")
@@ -143,7 +118,7 @@ func (a *App) lintTask(ctx context.Context, c *issueCollector, task string) erro
 	directory := a.layout.TaskDir(task)
 	if !layout.IsValidTaskName(task) {
 		c.add(task, "-", "naming", "task 名が規則([a-z0-9-]、連続・先頭末尾ハイフン不可)に違反しています",
-			"手動対応: task 名の変更はしない方針なので内容を確認する", nil)
+			"手動対応: task 名の変更はしない方針なので内容を確認する")
 	}
 	names, err := fsx.SubdirNames(directory)
 	if err != nil {
@@ -212,71 +187,40 @@ func (a *App) lintDanglingRegistrations(ctx context.Context, c *issueCollector, 
 			}
 			c.add(shownTask, filepath.Base(worktree), "broken-worktree",
 				"git に登録されていますがディレクトリがありません: "+worktree,
-				"git worktree prune を実行",
-				func(ctx context.Context) error {
-					_, err := gitexec.Output(ctx, a.git, bare, "worktree", "prune")
-					return err
-				})
+				"git -C "+bare+" worktree prune")
 		}
 	}
 	return nil
 }
 
 // LintTask checks one task. Dangling registrations are limited to that task.
-func (a *App) LintTask(ctx context.Context, task string, fix bool, report func(IssueResult)) (LintSummary, error) {
+func (a *App) LintTask(ctx context.Context, task string) ([]Issue, error) {
 	c := &issueCollector{}
 	if err := a.lintTask(ctx, c, task); err != nil {
-		return LintSummary{}, err
+		return nil, err
 	}
 	if err := a.lintDanglingRegistrations(ctx, c, func(found string) bool { return found == task }); err != nil {
-		return LintSummary{}, err
+		return nil, err
 	}
-	return a.resolveIssues(ctx, c.issues, fix, report)
+	return c.issues, nil
 }
 
 // LintWorkspace checks every task, plus dangling registrations that belong to no task.
-func (a *App) LintWorkspace(ctx context.Context, fix bool, report func(IssueResult)) (LintSummary, error) {
+func (a *App) LintWorkspace(ctx context.Context) ([]Issue, error) {
 	c := &issueCollector{}
 	if fsx.Exists(a.layout.TasksRoot()) {
 		tasks, err := fsx.SubdirNames(a.layout.TasksRoot())
 		if err != nil {
-			return LintSummary{}, err
+			return nil, err
 		}
 		for _, task := range tasks {
 			if err := a.lintTask(ctx, c, task); err != nil {
-				return LintSummary{}, err
+				return nil, err
 			}
 		}
 	}
 	if err := a.lintDanglingRegistrations(ctx, c, func(string) bool { return true }); err != nil {
-		return LintSummary{}, err
+		return nil, err
 	}
-	return a.resolveIssues(ctx, c.issues, fix, report)
-}
-
-func (a *App) resolveIssues(ctx context.Context, issues []Issue, fix bool, report func(IssueResult)) (LintSummary, error) {
-	summary := LintSummary{Total: len(issues)}
-	for _, issue := range issues {
-		result := IssueResult{Issue: issue}
-		switch {
-		case !fix:
-			summary.Unresolved++
-		case issue.fix == nil:
-			result.Outcome = NeedsManual
-			summary.Unresolved++
-		default:
-			if err := issue.fix(ctx); err != nil {
-				if ctx.Err() != nil {
-					return summary, err
-				}
-				result.Outcome = FixFailed
-				result.Failure = strings.TrimSpace(err.Error())
-				summary.Unresolved++
-			} else {
-				result.Outcome = Fixed
-			}
-		}
-		report(result)
-	}
-	return summary, nil
+	return c.issues, nil
 }

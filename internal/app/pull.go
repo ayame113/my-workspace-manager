@@ -36,12 +36,8 @@ type pullOutcome struct {
 	detail string
 }
 
-// failureOutcome turns an expected failure into an error outcome. Cancellation is not expected and propagates.
-func failureOutcome(ctx context.Context, err error) (pullOutcome, error) {
-	if ctx.Err() != nil {
-		return pullOutcome{}, err
-	}
-	return pullOutcome{status: PullError, detail: strings.TrimSpace(err.Error())}, nil
+func failureOutcome(err error) pullOutcome {
+	return pullOutcome{status: PullError, detail: strings.TrimSpace(err.Error())}
 }
 
 func (a *App) updateReadonly(ctx context.Context, bare, worktree, slug string) (pullOutcome, error) {
@@ -141,9 +137,7 @@ func (a *App) Pull(ctx context.Context, task string, report func(PullEntry)) (Pu
 			_, err = gitexec.Output(ctx, a.git, bare, "fetch", "--quiet", "origin", "--prune")
 		}
 		if err != nil {
-			if fetchFailures[repo], err = failureOutcome(ctx, err); err != nil {
-				return PullResult{}, err
-			}
+			fetchFailures[repo] = failureOutcome(err)
 		}
 	}
 	result := PullResult{Total: len(entries)}
@@ -158,9 +152,7 @@ func (a *App) Pull(ctx context.Context, task string, report func(PullEntry)) (Pu
 				outcome, err = a.updateWork(ctx, path)
 			}
 			if err != nil {
-				if outcome, err = failureOutcome(ctx, err); err != nil {
-					return result, err
-				}
+				outcome = failureOutcome(err)
 			}
 		}
 		if outcome.status == PullError {

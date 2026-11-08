@@ -62,41 +62,19 @@ func (r *runner) printPullEntry(entry app.PullEntry) {
 	r.printf("%-5s %-55s %-10s %s\n", entry.Kind, entry.Name, entry.Status, entry.Detail)
 }
 
-func (r *runner) printIssue(fix bool) func(app.IssueResult) {
-	return func(result app.IssueResult) {
-		issue := result.Issue
-		r.printf("[%s] %s\n  種類: %s\n  内容: %s\n  fix: %s\n", issue.Task, issue.Worktree, issue.Kind, issue.Message, issue.Fix)
-		if !fix {
-			return
-		}
-		switch result.Outcome {
-		case app.Fixed:
-			r.printf("  結果: 修正しました\n")
-		case app.NeedsManual:
-			r.printf("  結果: 手動対応が必要です\n")
-		case app.FixFailed:
-			r.printf("  結果: 修正に失敗しました: %s\n", result.Failure)
-		}
-	}
-}
-
-func (r *runner) finishLint(summary app.LintSummary, fix bool, err error) error {
+func (r *runner) reportIssues(issues []app.Issue, err error) error {
 	if err != nil {
 		return err
 	}
-	if summary.Total == 0 {
+	if len(issues) == 0 {
 		r.printf("問題はありません\n")
 		return nil
 	}
-	suffix := ""
-	if fix {
-		suffix = fmt.Sprintf("(未解決 %d 件)", summary.Unresolved)
+	for _, issue := range issues {
+		r.printf("[%s] %s\n  種類: %s\n  内容: %s\n  fix: %s\n", issue.Task, issue.Worktree, issue.Kind, issue.Message, issue.Fix)
 	}
-	r.printf("\n%d 件の問題%s\n", summary.Total, suffix)
-	if summary.Unresolved > 0 {
-		return exitError{ExitFailure}
-	}
-	return nil
+	r.printf("\n%d 件の問題\n", len(issues))
+	return exitError{ExitFailure}
 }
 
 func (r *runner) printCompactEvent(event app.CompactEvent) {
@@ -125,8 +103,5 @@ func (r *runner) printCompactResult(result app.CompactResult) {
 	r.printf("置き換え: %d ファイル(削減見込み %s)\n", result.Replaced, formatMiB(result.ReplacedBytes))
 	if result.Changed > 0 || result.NotCloned > 0 {
 		r.printf("スキップ: 走査後に変更されていた %d ファイル、複製できなかった %d ファイル\n", result.Changed, result.NotCloned)
-	}
-	if result.AvailableFirst != nil && result.AvailableLast != nil {
-		r.printf("空き容量: %s → %s\n", formatMiB(int64(*result.AvailableFirst)), formatMiB(int64(*result.AvailableLast)))
 	}
 }

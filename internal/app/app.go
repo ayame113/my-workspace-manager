@@ -374,8 +374,6 @@ func (a *App) Rename(ctx context.Context, opts RenameOptions) (RenameResult, err
 	if moved {
 		finalPath = newWorktree
 	}
-	// branch -m が成功してから worktree move が失敗した場合に戻せるよう、中断させず最後まで実行する
-	ctx = gitexec.Isolated(context.WithoutCancel(ctx))
 	unsetErr, err := a.renameBranchAndMove(ctx, bare, oldWorktree, finalPath, opts.Branch, opts.To, hadUpstream)
 	if err != nil {
 		return RenameResult{}, err

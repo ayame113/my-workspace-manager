@@ -111,10 +111,10 @@ func Run(ctx context.Context, args []string, env Env) int {
 	root.SetOut(env.Stdout)
 	root.SetErr(env.Stderr)
 	err := root.ExecuteContext(ctx)
-	return r.exitCode(ctx, root, args, err)
+	return r.exitCode(root, args, err)
 }
 
-func (r *runner) exitCode(ctx context.Context, root *cobra.Command, args []string, err error) int {
+func (r *runner) exitCode(root *cobra.Command, args []string, err error) int {
 	stderr := r.env.Stderr
 	if exit, ok := errors.AsType[exitError](err); ok {
 		return exit.code
@@ -128,7 +128,7 @@ func (r *runner) exitCode(ctx context.Context, root *cobra.Command, args []strin
 		fmt.Fprintf(stderr, "詳しくは '%s --help' を参照してください\n", target.CommandPath())
 		return ExitUsage
 	}
-	if errors.Is(err, prompt.ErrAborted) || ctx.Err() != nil {
+	if errors.Is(err, prompt.ErrAborted) {
 		fmt.Fprintln(stderr, "ws: 中断しました")
 		return ExitInterrupt
 	}

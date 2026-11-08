@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/ayame113/my-workspace-manager/internal/fsx"
 )
@@ -25,16 +26,16 @@ type CompactEvent struct {
 }
 
 type CompactResult struct {
-	DryRun         bool
-	Targets        int
-	SavingBytes    int64
-	Replaced       int
-	ReplacedBytes  int64
-	Changed        int
-	NotCloned      int
-	AvailableFirst *uint64
-	AvailableLast  *uint64
+	DryRun        bool
+	Targets       int
+	SavingBytes   int64
+	Replaced      int
+	ReplacedBytes int64
+	Changed       int
+	NotCloned     int
 }
+
+const compactTempPrefix = ".ws-compact-"
 
 type compactFile struct {
 	path     string
@@ -53,17 +54,14 @@ type inodeKey struct {
 }
 
 type scanner struct {
-	ctx    context.Context
 	seen   map[inodeKey]bool
 	files  []*compactFile
 	notify func(CompactEvent)
 }
 
 // scan collects non-empty regular files under node_modules (nested ones included). Symlinks are not followed and hard links count once.
+// Temporary files left by an interrupted replaceWithClone are deleted when found.
 func (s *scanner) scan(directory string, insideNodeModules bool) error {
-	if err := s.ctx.Err(); err != nil {
-		return err
-	}
 	entries, err := os.ReadDir(directory)
 	if err != nil {
 		return err
@@ -82,6 +80,10 @@ func (s *scanner) scan(directory string, insideNodeModules bool) error {
 		if !insideNodeModules {
 			continue
 		}
+		if strings.HasPrefix(entry.Name(), compactTempPrefix) {
+			os.Remove(path)
+			continue
+		}
 		stat, err := fsx.Lstat(path)
 		key := inodeKey{stat.Dev, stat.Ino}
 		if err != nil || !stat.IsRegular || stat.Size == 0 || s.seen[key] {
@@ -97,7 +99,7 @@ func (s *scanner) scan(directory string, insideNodeModules bool) error {
 }
 
 func (a *App) scanTasks(ctx context.Context, notify func(CompactEvent)) ([]*compactFile, error) {
-	s := &scanner{ctx: ctx, seen: map[inodeKey]bool{}, notify: notify}
+	s := &scanner{seen: map[inodeKey]bool{}, notify: notify}
 	if !fsx.Exists(a.layout.TasksRoot()) {
 		return nil, nil
 	}
@@ -130,7 +132,7 @@ func unchanged(path string, scanned fsx.Stat) bool {
 // replaceWithClone replaces target by a clone of representative; false means cloning is not possible.
 // Within one directory the rename is atomic, so target always exists with either the old or the new content.
 func replaceWithClone(target, representative string) (bool, error) {
-	temporary := filepath.Join(filepath.Dir(target), ".ws-compact-"+filepath.Base(target))
+	temporary := filepath.Join(filepath.Dir(target), compactTempPrefix+filepath.Base(target))
 	if err := os.Remove(temporary); err != nil && !os.IsNotExist(err) {
 		return false, err
 	}
@@ -199,9 +201,6 @@ func plan(groups [][]*compactFile) (map[string]indexEntry, []replacement) {
 // With dryRun nothing is modified.
 func (a *App) Compact(ctx context.Context, dryRun bool, notify func(CompactEvent)) (CompactResult, error) {
 	result := CompactResult{DryRun: dryRun}
-	if avail, err := fsx.AvailableBytes(a.layout.Root); err == nil {
-		result.AvailableFirst = &avail
-	}
 	indexPath := a.layout.CompactIndexPath()
 	indexed := loadCompactIndex(indexPath)
 	files, err := a.scanTasks(ctx, notify)
@@ -236,9 +235,6 @@ func (a *App) Compact(ctx context.Context, dryRun bool, notify func(CompactEvent
 		}
 	}
 	for i, file := range toHash {
-		if err := ctx.Err(); err != nil {
-			return result, err
-		}
 		if file.hash, err = fsx.SHA256Hex(file.path); err != nil {
 			return result, err
 		}
@@ -257,11 +253,7 @@ func (a *App) Compact(ctx context.Context, dryRun bool, notify func(CompactEvent
 		return result, nil
 	}
 
-	var interrupted error
 	for _, r := range replacements {
-		if interrupted = ctx.Err(); interrupted != nil {
-			break
-		}
 		// 走査後に変更されたファイルは、内容が変わっている可能性があるので触らない
 		if !unchanged(r.target.path, r.target.stat) || !unchanged(r.representative.path, r.representative.stat) {
 			result.Changed++
@@ -284,15 +276,5 @@ func (a *App) Compact(ctx context.Context, dryRun bool, notify func(CompactEvent
 			next[r.target.path] = updated.entry(true)
 		}
 	}
-	// 中断時も、ここまでに置き換えた分は記録して次回に引き継ぐ
-	if err := saveCompactIndex(indexPath, next); err != nil {
-		return result, err
-	}
-	if interrupted != nil {
-		return result, interrupted
-	}
-	if avail, err := fsx.AvailableBytes(a.layout.Root); err == nil {
-		result.AvailableLast = &avail
-	}
-	return result, nil
+	return result, saveCompactIndex(indexPath, next)
 }

@@ -20,7 +20,7 @@ cmp stdout $WORK/before.txt
 
 # 内容が同じで mode も同じものだけが置き換えられる。内容・mode・symlink は変わらない
 exec ws compact
-stdout '^走査しました: 7 ファイル\nハッシュ計算: 7 ファイル\n置き換え: 3 ファイル\(削減見込み 0.0 MiB\)\n空き容量: '
+stdout '^走査しました: 7 ファイル\nハッシュ計算: 7 ファイル\n置き換え: 3 ファイル\(削減見込み 0.0 MiB\)\n$'
 exec sh $WORK/describe.sh
 cp stdout $WORK/after.txt
 exec awk -f $WORK/changed.awk $WORK/before.txt $WORK/after.txt
@@ -50,6 +50,13 @@ stdout '^走査しました: 9 ファイル\nハッシュ計算: 1 ファイル\
 rm $WS_ROOT/.compact-index
 exec ws compact
 stdout '^走査しました: 9 ファイル\nハッシュ計算: 8 ファイル\n置き換え: 5 ファイル\(削減見込み 0.0 MiB\)\n'
+
+# 中断で残った一時ファイルは走査時に削除され、インデックスの一時ファイルは次回の保存で上書きされる
+exec sh -c 'printf junk > $A/node_modules/x/.ws-compact-index.js; printf junk > $WS_ROOT/.compact-index.tmp'
+exec ws compact
+! exists $A/node_modules/x/.ws-compact-index.js
+! exists $WS_ROOT/.compact-index.tmp
+stdout '^走査しました: 9 ファイル\n'
 
 # 壊れたインデックスは捨てて全件処理する
 exec sh -c 'echo garbage > $WS_ROOT/.compact-index'

@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"syscall"
-	"time"
 )
 
 type Result struct {
@@ -19,7 +17,7 @@ type Result struct {
 
 type Runner interface {
 	// Run executes git in dir (or the current directory when dir is empty).
-	// A non-zero exit is reported in Result; err is set only when git could not run or ctx was cancelled.
+	// A non-zero exit is reported in Result; err is set only when git could not run.
 	Run(ctx context.Context, dir string, args ...string) (Result, error)
 }
 
@@ -28,21 +26,6 @@ type ExitError struct {
 }
 
 func (e *ExitError) Error() string { return e.Stderr }
-
-type isolatedKey struct{}
-
-// Isolated makes the Runner start git in its own process group, so that a terminal SIGINT does not reach it.
-// Use it only around sequences that must not be cut short midway (rename's branch -m and worktree move).
-// Isolated git is no longer in the terminal's foreground group: anything that reads the terminal
-// (ssh passphrase prompts, hooks) would be stopped by SIGTTOU, so never use it for ordinary calls.
-func Isolated(ctx context.Context) context.Context {
-	return context.WithValue(ctx, isolatedKey{}, true)
-}
-
-func isolated(ctx context.Context) bool {
-	v, _ := ctx.Value(isolatedKey{}).(bool)
-	return v
-}
 
 type execRunner struct{}
 
@@ -53,20 +36,10 @@ func (execRunner) Run(ctx context.Context, dir string, args ...string) (Result, 
 		args = append([]string{"-C", dir}, args...)
 	}
 	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.WaitDelay = 5 * time.Second
-	if isolated(ctx) {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
-	} else {
-		cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
-	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
-	if err != nil && ctx.Err() != nil {
-		return Result{}, ctx.Err()
-	}
 	result := Result{Stdout: strings.TrimSpace(stdout.String()), Stderr: stderr.String()}
 	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 		result.ExitCode = exitErr.ExitCode()

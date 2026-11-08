@@ -49,7 +49,7 @@ func (r *runner) beforeRun(cmd *cobra.Command, args []string) error {
 	r.started = true
 	var err error
 	cmd.Flags().Visit(func(f *pflag.Flag) {
-		// 値を取るフラグが次のフラグを値として食べた場合(--task --fix など)を使い方の誤りにする
+		// 値を取るフラグが次のフラグを値として食べた場合(--task --repo など)を使い方の誤りにする
 		if f.Value.Type() == "string" && strings.HasPrefix(f.Value.String(), "-") && err == nil {
 			err = usagef("--%s に値が必要です(受け取った値: %s)", f.Name, f.Value.String())
 		}
@@ -118,17 +118,14 @@ func (r *runner) lsCommand() *cobra.Command {
 }
 
 func (r *runner) lintCommand() *cobra.Command {
-	var fix bool
 	cmd := &cobra.Command{
 		Use:   "lint",
 		Short: "workspace 全体の規約違反と壊れた worktree を検査する",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			summary, err := r.app.LintWorkspace(cmd.Context(), fix, r.printIssue(fix))
-			return r.finishLint(summary, fix, err)
+			return r.reportIssues(r.app.LintWorkspace(cmd.Context()))
 		},
 	}
-	cmd.Flags().BoolVar(&fix, "fix", false, "自動で直せる問題を直す")
 	return cmd
 }
 
@@ -294,7 +291,6 @@ func (r *runner) worktreeLsCommand() *cobra.Command {
 
 func (r *runner) worktreeLintCommand() *cobra.Command {
 	var task string
-	var fix bool
 	cmd := &cobra.Command{
 		Use:   "lint",
 		Short: "task 内の規約違反と壊れた worktree を検査する",
@@ -304,12 +300,10 @@ func (r *runner) worktreeLintCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			summary, err := r.app.LintTask(cmd.Context(), resolved, fix, r.printIssue(fix))
-			return r.finishLint(summary, fix, err)
+			return r.reportIssues(r.app.LintTask(cmd.Context(), resolved))
 		},
 	}
 	addTaskFlag(cmd, &task)
-	cmd.Flags().BoolVar(&fix, "fix", false, "自動で直せる問題を直す")
 	return cmd
 }
 

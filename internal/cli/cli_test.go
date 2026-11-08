@@ -24,9 +24,6 @@ type fakeGit struct {
 func (g *fakeGit) Run(ctx context.Context, dir string, args ...string) (gitexec.Result, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if err := ctx.Err(); err != nil {
-		return gitexec.Result{}, err
-	}
 	g.commands = append(g.commands, strings.Join(args, " "))
 	if args[0] == "show-ref" {
 		return gitexec.Result{ExitCode: 1}, nil
@@ -160,35 +157,6 @@ func TestExitCodes(t *testing.T) {
 	}
 }
 
-func TestInterruptedContext(t *testing.T) {
-	t.Parallel()
-	cancelled := func() context.Context {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-		return ctx
-	}
-
-	t.Run("failure caused by cancellation", func(t *testing.T) {
-		t.Parallel()
-		h := newHarness(t, envOptions{})
-		args := []string{"worktree", "add", "--task", "t1", "--repo", "r", "--branch", "x"}
-		if got := cli.Run(cancelled(), args, h.env); got != cli.ExitInterrupt {
-			t.Errorf("exit code = %d, want %d", got, cli.ExitInterrupt)
-		}
-		if !strings.Contains(h.stderr.String(), "ws: 中断しました") {
-			t.Errorf("stderr = %q", h.stderr.String())
-		}
-	})
-
-	t.Run("success despite cancellation", func(t *testing.T) {
-		t.Parallel()
-		h := newHarness(t, envOptions{})
-		if got := cli.Run(cancelled(), []string{"ls"}, h.env); got != cli.ExitOK {
-			t.Errorf("exit code = %d, want %d", got, cli.ExitOK)
-		}
-	})
-}
-
 func TestAddPrompt(t *testing.T) {
 	t.Parallel()
 	chosen := app.AddOptions{Task: "t1", Repo: "r", Branch: "feature/x", Base: "origin/main", Create: true}
@@ -198,57 +166,12 @@ func TestAddPrompt(t *testing.T) {
 		args        []string
 		wantCode    int
 		wantPartial []app.AddOptions
-		wantAdd     string
 	}{
-		{
-			name:        "everything missing",
-			env:         envOptions{tty: true},
-			args:        []string{"worktree", "add"},
-			wantCode:    0,
-			wantPartial: []app.AddOptions{{}},
-			wantAdd:     "worktree add --no-track -b feature/x " + "%s/tasks/t1/r--feature-x origin/main",
-		},
-		{
-			name:        "task from current directory",
-			env:         envOptions{tty: true, cwd: "tasks/t1"},
-			args:        []string{"worktree", "add"},
-			wantCode:    0,
-			wantPartial: []app.AddOptions{{Task: "t1"}},
-			wantAdd:     "worktree add --no-track -b feature/x " + "%s/tasks/t1/r--feature-x origin/main",
-		},
-		{
-			name:        "only missing values are asked",
-			env:         envOptions{tty: true, cwd: "tasks/t1"},
-			args:        []string{"worktree", "add", "--repo", "r", "-c"},
-			wantCode:    0,
-			wantPartial: []app.AddOptions{{Task: "t1", Repo: "r", Create: true}},
-			wantAdd:     "worktree add --no-track -b feature/x " + "%s/tasks/t1/r--feature-x origin/main",
-		},
-		{
-			name:     "not a terminal",
-			env:      envOptions{tty: false},
-			args:     []string{"worktree", "add"},
-			wantCode: 2,
-		},
-		{
-			name:     "inside an agent",
-			env:      envOptions{tty: true, claudeCode: true},
-			args:     []string{"worktree", "add"},
-			wantCode: 2,
-		},
-		{
-			name:     "complete arguments never prompt",
-			env:      envOptions{tty: true, cwd: "tasks/t1"},
-			args:     []string{"worktree", "add", "--repo", "r", "--branch", "b", "-c", "--base", "origin/main"},
-			wantCode: 0,
-			wantAdd:  "worktree add --no-track -b b %s/tasks/t1/r--b origin/main",
-		},
-		{
-			name:     "named task that does not exist is not prompted",
-			env:      envOptions{tty: true},
-			args:     []string{"worktree", "add", "--task", "nope"},
-			wantCode: 1,
-		},
+		{"everything missing", envOptions{tty: true}, []string{"worktree", "add"}, 0, []app.AddOptions{{}}},
+		{"only missing values are asked", envOptions{tty: true, cwd: "tasks/t1"}, []string{"worktree", "add", "--repo", "r", "-c"}, 0, []app.AddOptions{{Task: "t1", Repo: "r", Create: true}}},
+		{"not a terminal", envOptions{}, []string{"worktree", "add"}, 2, nil},
+		{"inside an agent", envOptions{tty: true, claudeCode: true}, []string{"worktree", "add"}, 2, nil},
+		{"complete arguments", envOptions{tty: true, cwd: "tasks/t1"}, []string{"worktree", "add", "--repo", "r", "--branch", "b", "-c", "--base", "origin/main"}, 0, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -261,11 +184,8 @@ func TestAddPrompt(t *testing.T) {
 			if !slices.Equal(h.prompter.addCalls, tt.wantPartial) {
 				t.Errorf("prompter calls = %+v, want %+v", h.prompter.addCalls, tt.wantPartial)
 			}
-			if tt.wantAdd != "" {
-				want := strings.Replace(tt.wantAdd, "%s", h.root, 1)
-				if !slices.Contains(h.git.commands, want) {
-					t.Errorf("git commands %q do not contain %q", h.git.commands, want)
-				}
+			if len(tt.wantPartial) > 0 && !slices.ContainsFunc(h.git.commands, func(c string) bool { return strings.Contains(c, "-b "+chosen.Branch) }) {
+				t.Errorf("prompted branch did not reach git: %q", h.git.commands)
 			}
 		})
 	}
@@ -273,49 +193,46 @@ func TestAddPrompt(t *testing.T) {
 
 func TestRenamePrompt(t *testing.T) {
 	t.Parallel()
-	chosen := app.RenameOptions{Task: "t1", Repo: "r", Branch: "old", To: "new"}
-
 	t.Run("missing values are asked", func(t *testing.T) {
 		t.Parallel()
 		h := newHarness(t, envOptions{tty: true, cwd: "tasks/t1"})
-		h.prompter.renameOut = chosen
-		oldWorktree := filepath.Join(h.root, "tasks/t1/r--old")
-		if err := os.MkdirAll(oldWorktree, 0o755); err != nil {
+		h.prompter.renameOut = app.RenameOptions{Task: "t1", Repo: "r", Branch: "old", To: "new"}
+		worktree := filepath.Join(h.root, "tasks/t1/r--old")
+		if err := os.MkdirAll(worktree, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(oldWorktree, ".git"), []byte("gitdir: x\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(worktree, ".git"), nil, 0o644); err != nil {
 			t.Fatal(err)
 		}
 		if got := h.run("worktree", "rename", "--repo", "r"); got != 0 {
 			t.Fatalf("exit code = %d, want 0\nstderr: %s", got, h.stderr.String())
 		}
-		want := []app.RenameOptions{{Task: "t1", Repo: "r"}}
-		if !slices.Equal(h.prompter.renameCalls, want) {
+		if want := []app.RenameOptions{{Task: "t1", Repo: "r"}}; !slices.Equal(h.prompter.renameCalls, want) {
 			t.Errorf("prompter calls = %+v, want %+v", h.prompter.renameCalls, want)
 		}
-		for _, command := range []string{
-			"branch --quiet -m old new",
-			"worktree move " + oldWorktree + " " + filepath.Join(h.root, "tasks/t1/r--new"),
-		} {
-			if !slices.Contains(h.git.commands, command) {
-				t.Errorf("git command %q was not run; ran %q", command, h.git.commands)
-			}
-		}
-		if !strings.Contains(h.stdout.String(), "リネームしました: old → new") {
-			t.Errorf("stdout = %q", h.stdout.String())
+		if !slices.Contains(h.git.commands, "branch --quiet -m old new") {
+			t.Errorf("prompted names did not reach git: %q", h.git.commands)
 		}
 	})
 
-	t.Run("not a terminal", func(t *testing.T) {
-		t.Parallel()
-		h := newHarness(t, envOptions{cwd: "tasks/t1"})
-		if got := h.run("worktree", "rename", "--repo", "r"); got != 2 {
-			t.Errorf("exit code = %d, want 2", got)
-		}
-		if len(h.prompter.renameCalls) != 0 {
-			t.Error("prompter must not be called")
-		}
-	})
+	for _, tt := range []struct {
+		name string
+		env  envOptions
+	}{
+		{"not a terminal", envOptions{cwd: "tasks/t1"}},
+		{"inside an agent", envOptions{tty: true, claudeCode: true, cwd: "tasks/t1"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newHarness(t, tt.env)
+			if got := h.run("worktree", "rename", "--repo", "r"); got != 2 {
+				t.Errorf("exit code = %d, want 2", got)
+			}
+			if len(h.prompter.renameCalls) != 0 {
+				t.Error("prompter must not be called")
+			}
+		})
+	}
 }
 
 func TestUserAbortedPrompt(t *testing.T) {

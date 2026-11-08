@@ -34,21 +34,21 @@ go install github.com/ayame113/my-workspace-manager/cmd/ws@latest
 | `ws new <task>` | `tasks/<task>/` を作る |
 | `ws clone <url> [<repo>]` | bare repo を `repos/` に用意する |
 | `ws ls` | 全 task の一覧(1 task 1 行。worktree 数と dirty 数) |
-| `ws lint [--fix]` | workspace 全体の規約違反・壊れた worktree を検査する |
+| `ws lint` | workspace 全体の規約違反・壊れた worktree を検査する |
 | `ws compact [--dry-run]` | 全 task の node_modules 内の同一ファイルを clonefile で共有し、容量を減らす |
 | `ws worktree add [--repo <repo>] [--branch <branch>] [-c --base <start-point> \| --readonly]` | worktree を作る。足りない引数は対話で尋ねる |
 | `ws worktree rename [--repo <repo>] [--branch <old>] [--to <new>]` | 作業用 worktree のブランチ名を変える。slug が変わればディレクトリも移動する。足りない引数は対話で尋ねる |
 | `ws worktree ls` | task 内の worktree の一覧 |
-| `ws worktree lint [--fix]` | task 内の規約違反・壊れた worktree を検査する |
+| `ws worktree lint` | task 内の規約違反・壊れた worktree を検査する |
 | `ws worktree pull` | fetch して task 内の worktree を fast-forward で追従させる |
 
 `ws worktree` 配下のコマンドは `--task <task>` を省略するとカレントディレクトリが属する task を使う。詳しくは `ws --help` / `ws worktree --help` / `ws worktree <command> --help`。
 
-`ws lint` は全 task の検査に加え、git に登録されているがディレクトリが無いもののうち、どの task にも属さないものも報告する。`ws worktree lint` は指定した task の分だけを報告する。
+`ws lint` は全 task の検査に加え、git に登録されているがディレクトリが無いもののうち、どの task にも属さないものも報告する。`ws worktree lint` は指定した task の分だけを報告する。lint は報告だけで修正はしない。直せるものには、実行すべき git コマンドを `fix:` に表示する。
 
-終了コードは 0 が成功、1 が実行時の失敗(lint で未解決の問題がある場合を含む)、2 が使い方の誤り、130 が中断(Ctrl-C など)。
+終了コードは 0 が成功、1 が実行時の失敗(lint で問題が見つかった場合を含む)、2 が使い方の誤り、130 が対話入力の中断(huh 上の Ctrl-C)。それ以外の場面の Ctrl-C は、シグナルで素直に終了する。
 
-`ws clone` が失敗または中断したときは、作りかけの `repos/<repo>.git` を削除する。
+`ws clone` が失敗したときは、作りかけの `repos/<repo>.git` を削除する。
 
 ### 対話入力
 
@@ -72,8 +72,9 @@ go install github.com/ayame113/my-workspace-manager/cmd/ws@latest
 `$WS_ROOT/tasks` 配下の全 worktree の node_modules(入れ子を含む)にある通常ファイルのうち、サイズ・SHA-256・mode が同じものを、代表ファイルの clonefile(copy-on-write)に原子的に置き換える。symlink と空ファイルは対象外。
 
 - 処理したファイルの inode・ctime・size・ハッシュと共有済みかどうかを `$WS_ROOT/.compact-index` に記録する。2 回目以降は記録と一致する(変更されていない)ファイルのハッシュ計算と置き換えを省き、追加・変更されたファイルだけを処理する(npm は展開時に mtime を固定値にするため ctime を使う)。インデックスを消すと全件処理に戻る。
-- 表示する削減見込みは置き換えたファイルのサイズの合計。`du` はクローンを区別しないので、実際の削減量は表示される実行前後の空き容量の差で見る。
+- 表示する削減見込みは置き換えたファイルのサイズの合計。`du` はクローンを区別しないので、実際の削減量は `df` の実行前後の差で見る。
 - 実行中の dev server 等が開いているファイルは旧 inode のまま残るので、影響はほぼ無い。
+- 中断で残った `.ws-compact-*` の一時ファイルは、次回の走査で削除する。
 
 ### 環境変数
 
@@ -93,10 +94,10 @@ gofmt -l .
 
 | パッケージ | 役割 |
 | --- | --- |
-| `cmd/ws` | `main`。シグナルを context に変換し、終了コードで `os.Exit` する |
+| `cmd/ws` | `main`。終了コードで `os.Exit` する |
 | `internal/cli` | フロント。cobra のコマンドツリー、フラグから `app` の Options への変換、エラーから終了コードへの変換、結果の整形出力 |
 | `internal/prompt` | フロント(TUI)。huh による対話入力。`cli` から interface 越しに呼ばれる |
 | `internal/app` | ロジック。各コマンドのユースケース(UI を知らない) |
 | `internal/layout` | `WS_ROOT` 配下のパスと命名規則(slug、task 名の検証など) |
 | `internal/gitexec` | 外部呼び出し。git の実行(`Runner` interface) |
-| `internal/fsx` | OS 呼び出し。clonefile、lstat、statfs(`golang.org/x/sys/unix`) |
+| `internal/fsx` | OS 呼び出し。clonefile、lstat(`golang.org/x/sys/unix`) |

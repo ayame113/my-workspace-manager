@@ -64,14 +64,14 @@ go install github.com/ayame113/my-workspace-manager/cmd/ws@latest
 ws new <task>                              # tasks/<task>/ を作成(既存なら何もせず成功)
 ws clone <url> [<repo>]                    # 【ユーザーが実行】bare repo を repos/ に用意
 ws ls                                      # 全 task の一覧(1 task 1 行)
-ws lint [--fix]                            # workspace 全体の規約違反・壊れた worktree を検査する
+ws lint                                    # workspace 全体の規約違反・壊れた worktree を検査する
 ws compact [--dry-run]                     # 全 task の node_modules 内の同一ファイルを clonefile で共有し、容量を減らす
 ws worktree add --repo <repo> --branch <branch>     # git switch <branch> 相当。作業用 worktree を作る
 ws worktree add --repo <repo> --branch <branch> --create --base <start-point>   # git switch -c 相当(-c は --create の短縮形)。新規ブランチ(upstream なし)
 ws worktree add --repo <repo> --branch <branch> --readonly   # origin/<branch> を detached で _readonly/ に作る
 ws worktree rename --repo <repo> --branch <old> --to <new>   # 作業用 worktree のブランチ名を変える。slug が変わればディレクトリも移動する
 ws worktree ls                             # task 内の worktree 一覧
-ws worktree lint [--fix]                   # task 内の規約違反・壊れた worktree を検査する
+ws worktree lint                          # task 内の規約違反・壊れた worktree を検査する
 ws worktree pull                           # 【ユーザーが実行】fetch して task 内の worktree を追従させる
 ```
 
@@ -100,13 +100,13 @@ ws worktree pull                           # 【ユーザーが実行】fetch �
 - 容量が気になったら `ws compact` を実行する。`$WS_ROOT/tasks` 配下の全 worktree の node_modules にある、内容(SHA-256)と mode が同じファイルを、APFS の clonefile(copy-on-write)で同じブロックを共有するファイルに置き換える。`--dry-run` で対象件数と削減見込みだけ確認できる。
 - ネットワークを使わないのでエージェントが実行してよい。実行中の dev server 等が開いているファイルは旧 inode のまま残るので、影響はほぼ無い。
 - 2 回目以降は `$WS_ROOT/.compact-index` の記録を使い、追加・変更されたファイルだけを処理する。
-- `du` はクローンを区別しないので、削減量は表示される空き容量の差で確認する。
+- `du` はクローンを区別しないので、削減量は `df` の実行前後の差で確認する。
 
 ## lint
 
-`ws lint`(workspace 全体)と `ws worktree lint`(task 内。省略時は現在の task)は報告のみ、`--fix` で修正する。`ws lint` は、どの task にも属さない「git に登録されているがディレクトリが無い」ものも報告する。検出項目は、ディレクトリ名と実ブランチの不一致、upstream が別名ブランチ、readonly の破綻、壊れた worktree、命名規則違反。
+`ws lint`(workspace 全体)と `ws worktree lint`(task 内。省略時は現在の task)は報告のみで、修正はしない。直せるものには、実行すべき git コマンドを `fix:` に表示する。`ws lint` は、どの task にも属さない「git に登録されているがディレクトリが無い」ものも報告する。検出項目は、ディレクトリ名と実ブランチの不一致、upstream が別名ブランチ、readonly の破綻、壊れた worktree、命名規則違反。
 
-- エージェントは `--fix` を勝手に実行しない。まず `ws lint` / `ws worktree lint` で報告し、内容をユーザーに伝えて確認を取る。
+- エージェントは `fix:` のコマンドを勝手に実行しない。まず `ws lint` / `ws worktree lint` で報告し、内容をユーザーに伝えて確認を取る。
 
 ## 注意点
 
