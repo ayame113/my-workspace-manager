@@ -188,7 +188,7 @@ func TestChooseTaskListsNewestFirst(t *testing.T) {
 }
 
 func TestNewAdoptsRandomTaskNameOnEnter(t *testing.T) {
-	p := newPrompter(t, strings.NewReader("\r"))
+	p := newPrompter(t, strings.NewReader("\r\r"))
 	got, err := p.New(testContext(t))
 	if err != nil {
 		t.Fatal(err)
@@ -217,14 +217,14 @@ func TestNewAsksReposThenTaskNameWithRepoPrefix(t *testing.T) {
 	go func() {
 		writer.WriteString(" \r")
 		time.Sleep(500 * time.Millisecond)
-		writer.WriteString("\r")
+		writer.WriteString("\r\r")
 	}()
 	got, err := p.New(testContext(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := app.NewTaskOptions{Task: "my-repo-" + randomName(), Repos: []string{"My_Repo"}}
-	if got.Task != want.Task || !slices.Equal(got.Repos, want.Repos) {
+	if got.Task != want.Task || !slices.Equal(got.Repos, want.Repos) || got.Description != want.Description {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
 }
@@ -238,7 +238,7 @@ func TestNewRegeneratesCollidingInitialTaskName(t *testing.T) {
 		}
 		return 1
 	}
-	p, root := newPrompterWithIntN(t, strings.NewReader("\r"), intn)
+	p, root := newPrompterWithIntN(t, strings.NewReader("\r\r"), intn)
 	if err := os.MkdirAll(root+"/tasks/"+randomName(), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -276,5 +276,16 @@ func TestRenameKeepsOldNameAsInitialValue(t *testing.T) {
 	}
 	if got.To != "old" {
 		t.Errorf("To = %q", got.To)
+	}
+}
+
+func TestDescribeStartsFromCurrent(t *testing.T) {
+	p := newPrompter(t, strings.NewReader(" and more\r"))
+	got, err := p.Describe(testContext(t), "t", "current")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "current and more" {
+		t.Errorf("got %q", got)
 	}
 }

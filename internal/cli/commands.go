@@ -30,6 +30,7 @@ func (r *runner) rootCommand() *cobra.Command {
 		r.newCommand(),
 		r.cloneCommand(),
 		r.lsCommand(),
+		r.describeCommand(),
 		r.lintCommand(),
 		r.compactCommand(),
 		r.worktreeCommand(),
@@ -64,13 +65,14 @@ func (r *runner) printf(format string, args ...any) {
 }
 
 func (r *runner) newCommand() *cobra.Command {
-	return &cobra.Command{
+	var description string
+	cmd := &cobra.Command{
 		Use:   "new [<task>]",
 		Short: "tasks/<task>/ を作る(引数なしなら対話で task 名と repo を選び、worktree もまとめて作る)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 1 {
-				return r.runNewTask(args[0])
+				return r.runNewTask(args[0], description)
 			}
 			if !r.interactive() {
 				return usagef("task 名が必要です")
@@ -78,17 +80,25 @@ func (r *runner) newCommand() *cobra.Command {
 			return r.runNewInteractive(cmd)
 		},
 	}
+	cmd.Flags().StringVar(&description, "description", "", "task の 1 行の説明(新しく作ったときだけ書き込む)")
+	return cmd
 }
 
-func (r *runner) runNewTask(task string) error {
+func (r *runner) runNewTask(task, description string) error {
 	result, err := r.app.NewTask(task)
 	if err != nil {
 		return err
 	}
-	if result.Created {
-		r.printf("作成しました: %s\n", result.Dir)
-	} else {
+	if !result.Created {
 		r.printf("task '%s' は既に存在します: %s\n", task, result.Dir)
+		if description != "" {
+			r.printf("説明は変更していません。変えるなら ws describe --task %s を使ってください\n", task)
+		}
+		return nil
+	}
+	r.printf("作成しました: %s\n", result.Dir)
+	if description != "" {
+		return r.setDescription(task, description)
 	}
 	return nil
 }
@@ -101,6 +111,11 @@ func (r *runner) runNewInteractive(cmd *cobra.Command) error {
 	result, err := r.app.NewTaskWithWorktrees(cmd.Context(), chosen.Task, chosen.Repos)
 	if result.Dir != "" {
 		r.printNewTask(result)
+		if chosen.Description != "" {
+			if _, descErr := r.app.SetDescription(chosen.Task, chosen.Description); descErr != nil {
+				return errors.Join(err, descErr)
+			}
+		}
 	}
 	if worktreeErr, ok := errors.AsType[*app.WorktreeCreateError](err); ok {
 		fmt.Fprintf(r.env.Stderr, "ws: %v\n", worktreeErr)
@@ -132,13 +147,18 @@ func (r *runner) cloneCommand() *cobra.Command {
 
 func (r *runner) lsCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "ls",
-		Short: "全 task の一覧(1 task 1 行)",
-		Args:  cobra.NoArgs,
+		Use:   "ls [<語>]",
+		Short: "全 task の一覧(1 task 1 行、最近作業した順)。語を渡すと task 名か説明に含むものだけ",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			tasks, err := r.app.ListTasks(cmd.Context())
 			if err != nil {
 				return err
+			}
+			if len(args) == 1 {
+				tasks = slices.DeleteFunc(tasks, func(task app.TaskSummary) bool {
+					return !containsFold(task.Name+" "+task.Description, args[0])
+				})
 			}
 			r.printTasks(tasks)
 			return nil
@@ -427,4 +447,56 @@ func (r *runner) skillInstallCommand() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func containsFold(text, word string) bool {
+	return strings.Contains(strings.ToLower(text), strings.ToLower(word))
+}
+
+func (r *runner) describeCommand() *cobra.Command {
+	var task string
+	cmd := &cobra.Command{
+		Use:   "describe [<説明>]",
+		Short: "task の 1 行の説明を書き込む(\"\" で消す)。説明を省略すると表示し、対話できるなら編集する",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			resolved, err := r.resolveTaskOrChoose(cmd, task)
+			if err != nil {
+				return err
+			}
+			if len(args) == 1 {
+				return r.setDescription(resolved, args[0])
+			}
+			current, err := r.app.Description(resolved)
+			if err != nil {
+				return err
+			}
+			if !r.interactive() {
+				if current != "" {
+					r.printf("%s\n", current)
+				}
+				return nil
+			}
+			edited, err := r.prompter().Describe(cmd.Context(), resolved, current)
+			if err != nil {
+				return err
+			}
+			return r.setDescription(resolved, edited)
+		},
+	}
+	r.addTaskFlag(cmd, &task)
+	return cmd
+}
+
+func (r *runner) setDescription(task, description string) error {
+	stored, err := r.app.SetDescription(task, description)
+	if err != nil {
+		return err
+	}
+	if stored == "" {
+		r.printf("task '%s' の説明を消しました\n", task)
+	} else {
+		r.printf("task '%s' の説明: %s\n", task, stored)
+	}
+	return nil
 }

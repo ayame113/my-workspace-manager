@@ -480,11 +480,12 @@ func (a *App) ListWorktrees(ctx context.Context, task string) ([]WorktreeEntry, 
 }
 
 type TaskSummary struct {
-	Name     string
-	Work     int
-	Readonly int
-	Dirty    int
-	Updated  time.Time
+	Name        string
+	Work        int
+	Readonly    int
+	Dirty       int
+	Updated     time.Time
+	Description string
 }
 
 // ListTasks summarizes every task, most recently active first.
@@ -503,6 +504,9 @@ func (a *App) ListTasks(ctx context.Context) ([]TaskSummary, error) {
 			return nil, err
 		}
 		summary := TaskSummary{Name: name, Updated: a.taskActivity(name, entries)}
+		if summary.Description, err = a.Description(name); err != nil {
+			summary.Description = fmt.Sprintf("(%s を読めません)", taskMetaFile)
+		}
 		for _, entry := range entries {
 			if entry.Kind == KindReadonly {
 				summary.Readonly++

@@ -73,8 +73,9 @@ func (a *App) ValidateNewTaskName(task string) error {
 }
 
 type NewTaskOptions struct {
-	Task  string
-	Repos []string
+	Task        string
+	Repos       []string
+	Description string
 }
 
 type CreatedWorktree struct {

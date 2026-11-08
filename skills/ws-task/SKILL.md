@@ -1,6 +1,6 @@
 ---
 name: ws-task
-description: タスク用の作業ディレクトリ(~/ws/tasks/<task>)の作成、git worktree の追加(作業用 / readonly 参照用 / 新規ブランチ)、ブランチ名の変更(ws worktree rename)、一覧(ws ls / ws worktree ls)、ローカル worktree のリモート追従(ws worktree pull)、node_modules の重複排除によるディスク容量の削減(ws compact)、規約違反の検査(ws lint / ws worktree lint)をするときに使う。「タスクを作って」「worktreeを追加」「ブランチ名を変えたい」「〇〇ブランチを参照用に」「新しいブランチで作業を始めたい」「worktreeを最新にして」「容量を減らして」「workspace を点検して」などの依頼で起動する。
+description: タスク用の作業ディレクトリ(~/ws/tasks/<task>)の作成、git worktree の追加(作業用 / readonly 参照用 / 新規ブランチ)、ブランチ名の変更(ws worktree rename)、一覧と検索(ws ls / ws worktree ls)、task の説明の記録(ws describe)、ローカル worktree のリモート追従(ws worktree pull)、node_modules の重複排除によるディスク容量の削減(ws compact)、規約違反の検査(ws lint / ws worktree lint)をするときに使う。「タスクを作って」「worktreeを追加」「ブランチ名を変えたい」「〇〇ブランチを参照用に」「新しいブランチで作業を始めたい」「worktreeを最新にして」「容量を減らして」「workspace を点検して」などの依頼で起動する。
 ---
 
 # ws-task: タスク単位の worktree 管理
@@ -62,9 +62,10 @@ go install github.com/ayame113/my-workspace-manager/cmd/ws@latest
 ## 使い方
 
 ```
-ws new <task>                              # tasks/<task>/ を作成(既存なら何もせず成功)。引数なしの対話での一括作成は人間専用
+ws new <task> --description "<説明>"      # tasks/<task>/ を作成し説明を書く(既存なら何もせず成功し、説明も変えない)。引数なしの対話での一括作成は人間専用
 ws clone <url> [<repo>]                    # 【ユーザーが実行】bare repo を repos/ に用意
-ws ls                                      # 全 task の一覧(1 task 1 行)
+ws ls [<語>]                               # 全 task の一覧(1 task 1 行、最近作業した順、説明つき)。語を渡すと task 名か説明に含むものだけ
+ws describe [--task <task>] ["<説明>"]     # task の 1 行の説明を書く("" で消す)。説明を省略すると今の説明を表示する
 ws lint                                    # workspace 全体の規約違反・壊れた worktree を検査する
 ws compact [--dry-run]                     # 全 task の node_modules 内の同一ファイルを clonefile で共有し、容量を減らす
 ws worktree add --repo <repo> --branch <branch>     # git switch <branch> 相当。作業用 worktree を作る
@@ -88,6 +89,16 @@ ws worktree pull                           # 【ユーザーが実行】fetch �
   - readonly: 最新の `origin/<branch>` に detached で付け直す。
   - 作業用: upstream があれば `git merge --ff-only`。マージコミットや rebase は作らない。
   - 未コミット変更あり、upstream なし、upstream と分岐、はスキップして理由を表示する。一致するブランチが0件 / 複数件の readonly と、その他の失敗は error として表示され、終了コードは 1 になる。
+
+## task の説明(ws describe)
+
+task の説明は `tasks/<task>/.ws-task.json` に保存され、`ws ls` に表示され、`ws ls <語>` で検索できる。ファイルは直接編集せず、必ず ws のコマンドで読み書きする。
+
+- `ws new` するときは `--description` で説明を付ける。
+- `~/ws/tasks/<task>/` の中で作業していて、`ws describe` が何も表示しない(説明が空)なら、作業内容が分かった時点で `ws describe "<説明>"` で書く。
+- 説明は 1 行で、何のための task か(目的、対象の repo や機能、関係する PR / issue の番号)を、後で `ws ls` から探せる言葉で書く。例: `決済画面のリニューアル(web と api、#123)`。
+- 既に説明がある場合は、ユーザーが書いたものかもしれないので勝手に上書きしない。明らかに古くなっていたら、書き換えてよいかユーザーに確認する。
+- 過去の task を探すときは `ws ls <語>` を使う。
 
 ## ブランチ名の変更(ws worktree rename)
 

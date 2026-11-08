@@ -28,8 +28,8 @@ const selectHeight = 12
 // ErrAborted is returned when the user cancels a prompt (Ctrl-C / Esc).
 var ErrAborted = errors.New("入力が中断されました")
 
-func (p *Prompter) run(ctx context.Context, field huh.Field) error {
-	err := huh.NewForm(huh.NewGroup(field)).WithInput(p.in).WithOutput(p.out).RunWithContext(ctx)
+func (p *Prompter) run(ctx context.Context, fields ...huh.Field) error {
+	err := huh.NewForm(huh.NewGroup(fields...)).WithInput(p.in).WithOutput(p.out).RunWithContext(ctx)
 	if errors.Is(err, huh.ErrUserAborted) {
 		return ErrAborted
 	}
@@ -55,7 +55,10 @@ func (p *Prompter) choose(ctx context.Context, title string, options []string) (
 
 func (p *Prompter) input(ctx context.Context, title, initial string, validate func(string) error) (string, error) {
 	value := initial
-	field := huh.NewInput().Title(title).Value(&value).Validate(validate)
+	field := huh.NewInput().Title(title).Value(&value)
+	if validate != nil {
+		field = field.Validate(validate)
+	}
 	if err := p.run(ctx, field); err != nil {
 		return "", err
 	}
@@ -100,7 +103,25 @@ func (p *Prompter) ChooseTask(ctx context.Context) (string, error) {
 	if len(tasks) == 0 {
 		return "", errors.New("task がありません。先に 'ws new' を実行してください")
 	}
-	return p.choose(ctx, "task", tasks)
+	options := make([]huh.Option[string], len(tasks))
+	for i, task := range tasks {
+		label := task
+		if description, err := p.app.Description(task); err == nil && description != "" {
+			label += "  " + description
+		}
+		options[i] = huh.NewOption(label, task)
+	}
+	var chosen string
+	field := huh.NewSelect[string]().
+		Title("task(説明でも絞り込める)").
+		Options(options...).
+		Filtering(true).
+		Height(selectHeight).
+		Value(&chosen)
+	if err := p.run(ctx, field); err != nil {
+		return "", err
+	}
+	return chosen, nil
 }
 
 // New asks for the repos to create worktrees in (none is allowed), then for a task name.
@@ -120,10 +141,22 @@ func (p *Prompter) New(ctx context.Context) (app.NewTaskOptions, error) {
 	if err != nil {
 		return app.NewTaskOptions{}, err
 	}
-	task, err := p.input(ctx, "task 名", initial, func(name string) error {
-		return p.app.ValidateNewTaskName(strings.TrimSpace(name))
-	})
-	return app.NewTaskOptions{Task: task, Repos: chosen}, err
+	task, description := initial, ""
+	err = p.run(ctx,
+		huh.NewInput().Title("task 名").Value(&task).Validate(func(name string) error {
+			return p.app.ValidateNewTaskName(strings.TrimSpace(name))
+		}),
+		huh.NewInput().Title("説明(1 行、空でもよい)").Value(&description),
+	)
+	if err != nil {
+		return app.NewTaskOptions{}, err
+	}
+	return app.NewTaskOptions{Task: strings.TrimSpace(task), Repos: chosen, Description: description}, nil
+}
+
+// Describe asks for a task's description, starting from the current one.
+func (p *Prompter) Describe(ctx context.Context, task, current string) (string, error) {
+	return p.input(ctx, fmt.Sprintf("task '%s' の説明(1 行、空にすると消す)", task), current, nil)
 }
 
 // Filtering is left off: huh starts a filtered MultiSelect in filter mode, where Space and Enter edit the filter instead of toggling and confirming.

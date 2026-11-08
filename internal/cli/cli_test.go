@@ -55,6 +55,9 @@ type fakePrompter struct {
 
 	skillTargetCalls int
 	skillTargetsOut  []string
+
+	describeCalls []string
+	describeOut   string
 }
 
 func (p *fakePrompter) ChooseTask(ctx context.Context) (string, error) {
@@ -70,6 +73,11 @@ func (p *fakePrompter) New(ctx context.Context) (app.NewTaskOptions, error) {
 func (p *fakePrompter) ChooseSkillTargets(ctx context.Context) ([]string, error) {
 	p.skillTargetCalls++
 	return p.skillTargetsOut, p.err
+}
+
+func (p *fakePrompter) Describe(ctx context.Context, task, current string) (string, error) {
+	p.describeCalls = append(p.describeCalls, current)
+	return p.describeOut, p.err
 }
 
 func (p *fakePrompter) Add(ctx context.Context, partial app.AddOptions) (app.AddOptions, error) {
@@ -485,5 +493,24 @@ func TestCompletion(t *testing.T) {
 				t.Errorf("directive = %s, want :4 (no file completion)", directive)
 			}
 		})
+	}
+}
+
+func TestDescribePromptsFromCurrentDescription(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, envOptions{tty: true, cwd: "tasks/t1"})
+	if got := h.run("describe", "first"); got != 0 {
+		t.Fatalf("exit code = %d\nstderr: %s", got, h.stderr.String())
+	}
+	h.prompter.describeOut = "edited"
+	if got := h.run("describe"); got != 0 {
+		t.Fatalf("exit code = %d\nstderr: %s", got, h.stderr.String())
+	}
+	if !slices.Equal(h.prompter.describeCalls, []string{"first"}) {
+		t.Errorf("describe prompts = %q", h.prompter.describeCalls)
+	}
+	data, err := os.ReadFile(filepath.Join(h.root, "tasks/t1/.ws-task.json"))
+	if err != nil || !strings.Contains(string(data), `"edited"`) {
+		t.Errorf("stored = %s, %v", data, err)
 	}
 }

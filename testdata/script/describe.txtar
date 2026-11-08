@@ -1,0 +1,41 @@
+# new --description は新しく作ったときだけ書き込む
+exec ws new pay --description 'checkout リニューアル'
+stdout '作成しました'
+stdout 'task ''pay'' の説明: checkout リニューアル'
+exec ws new pay --description 'ignored'
+stdout '説明は変更していません'
+exec ws describe --task pay
+stdout '^checkout リニューアル$'
+
+# describe は task 内なら --task を省略できる。"" で消す
+exec ws new docs
+cd $WS_ROOT/tasks/docs
+exec ws describe 'README の整備'
+cd $WORK
+exec ws describe --task docs
+stdout '^README の整備$'
+exists $WS_ROOT/tasks/docs/.ws-task.json
+grep 'ws describe --task docs' $WS_ROOT/tasks/docs/.ws-task.json
+
+exec ws new idle
+exec ws ls
+stdout '^pay +0 worktrees +clean +checkout リニューアル$'
+stdout '^idle +0 worktrees +clean$'
+
+# ls の語は task 名と説明を大文字小文字を区別せずに探す
+exec ws ls CHECKOUT
+stdout '^pay '
+! stdout 'docs|idle'
+exec ws ls doc
+stdout '^docs '
+! stdout 'pay|idle'
+
+exec ws describe --task docs ''
+stdout '説明を消しました'
+! exists $WS_ROOT/tasks/docs/.ws-task.json
+exec ws describe --task docs
+! stdout .
+
+# lint は .ws-task.json を問題にしない
+exec ws lint
+stdout '問題はありません'

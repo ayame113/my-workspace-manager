@@ -16,9 +16,9 @@ func (r *runner) printNewTask(result app.NewTaskWithWorktreesResult) {
 }
 
 func (r *runner) printTasks(tasks []app.TaskSummary) {
-	type row struct{ name, count, state string }
+	type row struct{ name, count, state, description string }
 	rows := make([]row, 0, len(tasks))
-	nameWidth, countWidth := 0, 0
+	nameWidth, countWidth, stateWidth := 0, 0, 0
 	for _, task := range tasks {
 		count := fmt.Sprintf("%d worktrees", task.Work+task.Readonly)
 		if task.Readonly > 0 {
@@ -28,12 +28,14 @@ func (r *runner) printTasks(tasks []app.TaskSummary) {
 		if task.Dirty > 0 {
 			state = fmt.Sprintf("%d dirty", task.Dirty)
 		}
-		rows = append(rows, row{task.Name, count, state})
+		rows = append(rows, row{task.Name, count, state, task.Description})
 		nameWidth = max(nameWidth, utf8.RuneCountInString(task.Name))
 		countWidth = max(countWidth, utf8.RuneCountInString(count))
+		stateWidth = max(stateWidth, utf8.RuneCountInString(state))
 	}
 	for _, row := range rows {
-		r.printf("%-*s%-*s%s\n", nameWidth+3, row.name, countWidth+3, row.count, row.state)
+		line := fmt.Sprintf("%-*s%-*s%-*s%s", nameWidth+3, row.name, countWidth+3, row.count, stateWidth+3, row.state, row.description)
+		r.printf("%s\n", strings.TrimRight(line, " "))
 	}
 }
 

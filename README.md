@@ -47,9 +47,10 @@ Claude Code では、代わりにプラグインとして入れることもで�
 
 | コマンド | 内容 |
 | --- | --- |
-| `ws new [<task>]` | `tasks/<task>/` を作る。引数なしで対話可能なら、repo と task 名を尋ねて worktree もまとめて作る |
+| `ws new [<task>] [--description <説明>]` | `tasks/<task>/` を作る。`--description` は新しく作ったときだけ書き込む。引数なしで対話可能なら、repo と task 名と説明を尋ねて worktree もまとめて作る |
 | `ws clone <url> [<repo>]` | bare repo を `repos/` に用意する |
-| `ws ls` | 全 task の一覧(1 task 1 行。worktree 数と dirty 数。最近作業した順) |
+| `ws ls [<語>]` | 全 task の一覧(1 task 1 行。worktree 数、dirty 数、説明。最近作業した順)。語を渡すと task 名か説明に含むものだけを出す(大文字小文字は区別しない) |
+| `ws describe [<説明>]` | task の 1 行の説明を書く(`""` で消す)。説明を省略すると表示し、対話できるなら今の説明を初期値にして編集する |
 | `ws lint` | workspace 全体の規約違反・壊れた worktree を検査する |
 | `ws compact [--dry-run]` | 全 task の node_modules 内の同一ファイルを clonefile で共有し、容量を減らす |
 | `ws worktree add [--repo <repo>] [--branch <branch>] [-c --base <start-point> \| --readonly]` | worktree を作る。足りない引数は対話で尋ねる |
@@ -61,7 +62,9 @@ Claude Code では、代わりにプラグインとして入れることもで�
 
 `ws worktree` 配下のコマンドは `--task <task>` を省略するとカレントディレクトリが属する task を使う。task の外で、対話可能なら一覧から選ばせる(`ls` / `lint` / `pull` も同じ)。詳しくは `ws --help` / `ws worktree --help` / `ws worktree <command> --help`。
 
-「最近作業した順」は、各 worktree の git の index と HEAD のログの更新日時で決める(add、commit、checkout、status などで更新される)。ファイルを編集しただけでは変わらない。worktree の無い task はディレクトリの更新日時を使う。対話で task を選ぶ一覧も同じ順。
+「最近作業した順」は、各 worktree の git の index と HEAD のログの更新日時で決める(add、commit、checkout、status などで更新される)。ファイルを編集しただけでは変わらない。worktree の無い task はディレクトリの更新日時を使う。対話で task を選ぶ一覧も同じ順で、説明も表示し、説明の語でも絞り込める。
+
+task の説明は `tasks/<task>/.ws-task.json` に JSON で保存する。ws は知らないキーを消さずに書き戻すので、将来キーが増えても古い ws で壊れない。ファイルには `ws describe` の使い方を `_comment` として書き込み、ファイルを開いたエージェントがコマンドを使うよう促す。エージェントには SKILL.md の規則で、説明が空なら書くよう指示している。
 
 `ws lint` は全 task の検査に加え、git に登録されているがディレクトリが無いもののうち、どの task にも属さないものも報告する。`ws worktree lint` は指定した task の分だけを報告する。lint は報告だけで修正はしない。直せるものには、実行すべき git コマンドを `fix:` に表示する。
 
@@ -71,14 +74,14 @@ Claude Code では、代わりにプラグインとして入れることもで�
 
 ### 対話入力
 
-`ws new`(引数なし)、`ws worktree add`、`ws worktree rename`、`ws skill install`(引数なし)は、必須の引数が足りないときに [huh](https://github.com/charmbracelet/huh) で対話的に尋ねる。部分的に指定した引数はそのまま使い、足りないものだけを尋ねる。
+`ws new`(引数なし)、`ws worktree add`、`ws worktree rename`、`ws describe`(説明なし)、`ws skill install`(引数なし)は、必須の引数が足りないときに [huh](https://github.com/charmbracelet/huh) で対話的に尋ねる。部分的に指定した引数はそのまま使い、足りないものだけを尋ねる。
 
 - 対話は stdin と stderr の両方が端末のときだけ出る。それ以外(パイプ、スクリプト、エージェント)では、足りない引数は使い方の誤り(終了コード 2)になる。
 - `add`: task(カレントディレクトリから決まらなければ一覧から)→ repo(`repos/*.git`)→ 種類(既存ブランチ / 新規ブランチ / readonly)→ ブランチ。既存ブランチはローカルと origin のブランチから絞り込みで選ぶ。新規ブランチは名前(`git check-ref-format` で検証)と起点(origin のブランチ。既定は `origin/HEAD`、無ければ `origin/main`)を尋ねる。
 - `rename`: task 内の作業用 worktree から選び、新しいブランチ名を入力する(初期値は現在の名前)。
 - `add` の新規ブランチ名の初期値は、ローカルにも origin にも無いランダムな名前(`brave-otter` のような `<形容詞>-<名詞>`)。Enter だけで採用できる。`rename` の初期値は現在の名前のまま。
 - `ws worktree ls` / `lint` / `pull`: `--task` を省略して task の外にいるときは、task 一覧から絞り込みで選ぶ。task が 1 つも無ければ、選ばせずにエラーにする。`pull` のエージェント拒否は task の解決より先に行う。
-- `ws new`(引数なし): repo を複数選ぶ(0 個でもよい。repo が無ければこの手順は出ない)→ task 名を入力する。task 名の初期値は `<repo 名>-<形容詞>-<名詞>`。repo 名は小文字化して `[a-z0-9]` 以外の連続をハイフン 1 つにし、複数選んだときは共通する先頭の語を 1 回だけ書いて残りを続ける(`app-web` と `app-api` なら `app-web-api-<形容詞>-<名詞>`)。repo を選ばなければ `<形容詞>-<名詞>`。既存の task と重ならない名前になる。
+- `ws new`(引数なし): repo を複数選ぶ(0 個でもよい。repo が無ければこの手順は出ない)→ task 名と説明(空でもよい)を入力する。task 名の初期値は `<repo 名>-<形容詞>-<名詞>`。repo 名は小文字化して `[a-z0-9]` 以外の連続をハイフン 1 つにし、複数選んだときは共通する先頭の語を 1 回だけ書いて残りを続ける(`app-web` と `app-api` なら `app-web-api-<形容詞>-<名詞>`)。repo を選ばなければ `<形容詞>-<名詞>`。既存の task と重ならない名前になる。
   - 選んだ各 repo に、新規ブランチで作業用 worktree を作る(`worktree add --create` 相当)。ブランチ名は尋ねず、全 repo 共通のランダムな名前(どの repo のローカルにも origin にも無いもの)。起点は `origin/HEAD`、無ければ `origin/main`(どちらも無い repo があれば、何も作らずエラー)。
   - 途中の worktree 作成に失敗したら、作成済みのものは残し、どこまでできたかを表示して終了コード 1 にする。
   - `ws new <task>` のように引数を渡したときは、従来どおり task を作るだけで対話しない。対話できない環境で引数が無ければ終了コード 2。
