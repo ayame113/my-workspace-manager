@@ -8,6 +8,13 @@ import (
 	"github.com/ayame113/my-workspace-manager/internal/app"
 )
 
+func (r *runner) printNewTask(result app.NewTaskWithWorktreesResult) {
+	r.printf("作成しました: %s\n", result.Dir)
+	for _, worktree := range result.Worktrees {
+		r.printf("作成しました: %s (ブランチ: %s)\n", worktree.Path, result.Branch)
+	}
+}
+
 func (r *runner) printTasks(tasks []app.TaskSummary) {
 	type row struct{ name, count, state string }
 	rows := make([]row, 0, len(tasks))

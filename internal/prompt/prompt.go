@@ -91,16 +91,61 @@ func (p *Prompter) chooseMode(ctx context.Context) (addMode, error) {
 	return mode, nil
 }
 
+// ChooseTask lets the user pick from the existing tasks.
+func (p *Prompter) ChooseTask(ctx context.Context) (string, error) {
+	tasks, err := p.app.TaskNames()
+	if err != nil {
+		return "", err
+	}
+	if len(tasks) == 0 {
+		return "", errors.New("task がありません。先に 'ws new' を実行してください")
+	}
+	return p.choose(ctx, "task", tasks)
+}
+
+// New asks for the repos to create worktrees in (none is allowed), then for a task name.
+func (p *Prompter) New(ctx context.Context) (app.NewTaskOptions, error) {
+	repos, err := p.app.RepoNames()
+	if err != nil {
+		return app.NewTaskOptions{}, err
+	}
+	var chosen []string
+	if len(repos) > 0 {
+		chosen, err = p.chooseMany(ctx, "worktree を作る repo(Space で選択、何も選ばなければ task だけ作る)", repos)
+		if err != nil {
+			return app.NewTaskOptions{}, err
+		}
+	}
+	initial, err := p.app.RandomTaskName(chosen)
+	if err != nil {
+		return app.NewTaskOptions{}, err
+	}
+	task, err := p.input(ctx, "task 名", initial, func(name string) error {
+		return p.app.ValidateNewTaskName(strings.TrimSpace(name))
+	})
+	return app.NewTaskOptions{Task: task, Repos: chosen}, err
+}
+
+// Filtering is left off: huh starts a filtered MultiSelect in filter mode, where Space and Enter edit the filter instead of toggling and confirming.
+func (p *Prompter) chooseMany(ctx context.Context, title string, options []string) ([]string, error) {
+	var chosen []string
+	field := huh.NewMultiSelect[string]().
+		Title(title).
+		Options(huh.NewOptions(options...)...).
+		Height(selectHeight).
+		Value(&chosen)
+	if err := p.run(ctx, field); err != nil {
+		return nil, err
+	}
+	return chosen, nil
+}
+
 // Add asks for the fields of partial that are empty.
 func (p *Prompter) Add(ctx context.Context, partial app.AddOptions) (app.AddOptions, error) {
 	opts := partial
 	var err error
 	if opts.Task == "" {
-		tasks, err := p.app.TaskNames()
-		if err != nil {
-			return opts, err
-		}
-		if opts.Task, err = p.choose(ctx, "task", tasks); err != nil {
+		if opts.Task, err = p.ChooseTask(ctx); err != nil {
 			return opts, err
 		}
 	}
@@ -132,7 +177,11 @@ func (p *Prompter) Add(ctx context.Context, partial app.AddOptions) (app.AddOpti
 		opts.Branch, err = p.choose(ctx, "参照するブランチ(origin)", branches.Remote)
 	case opts.Create:
 		if opts.Branch == "" {
-			if opts.Branch, err = p.branchName(ctx, "新しいブランチ名", ""); err != nil {
+			initial, err := p.app.RandomBranchName(ctx, []string{opts.Repo})
+			if err != nil {
+				return opts, err
+			}
+			if opts.Branch, err = p.branchName(ctx, "新しいブランチ名", initial); err != nil {
 				return opts, err
 			}
 		}
@@ -177,11 +226,8 @@ func (p *Prompter) chooseBase(ctx context.Context, repo string, remote []string)
 func (p *Prompter) Rename(ctx context.Context, partial app.RenameOptions) (app.RenameOptions, error) {
 	opts := partial
 	if opts.Task == "" {
-		tasks, err := p.app.TaskNames()
-		if err != nil {
-			return opts, err
-		}
-		if opts.Task, err = p.choose(ctx, "task", tasks); err != nil {
+		var err error
+		if opts.Task, err = p.ChooseTask(ctx); err != nil {
 			return opts, err
 		}
 	}

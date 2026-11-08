@@ -63,22 +63,49 @@ func (r *runner) printf(format string, args ...any) {
 
 func (r *runner) newCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "new <task>",
-		Short: "tasks/<task>/ を作る",
-		Args:  cobra.ExactArgs(1),
+		Use:   "new [<task>]",
+		Short: "tasks/<task>/ を作る(引数なしなら対話で task 名と repo を選び、worktree もまとめて作る)",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := r.app.NewTask(args[0])
-			if err != nil {
-				return err
+			if len(args) == 1 {
+				return r.runNewTask(args[0])
 			}
-			if result.Created {
-				r.printf("作成しました: %s\n", result.Dir)
-			} else {
-				r.printf("task '%s' は既に存在します: %s\n", args[0], result.Dir)
+			if !r.interactive() {
+				return usagef("task 名が必要です")
 			}
-			return nil
+			return r.runNewInteractive(cmd)
 		},
 	}
+}
+
+func (r *runner) runNewTask(task string) error {
+	result, err := r.app.NewTask(task)
+	if err != nil {
+		return err
+	}
+	if result.Created {
+		r.printf("作成しました: %s\n", result.Dir)
+	} else {
+		r.printf("task '%s' は既に存在します: %s\n", task, result.Dir)
+	}
+	return nil
+}
+
+func (r *runner) runNewInteractive(cmd *cobra.Command) error {
+	chosen, err := r.prompter().New(cmd.Context())
+	if err != nil {
+		return err
+	}
+	result, err := r.app.NewTaskWithWorktrees(cmd.Context(), chosen.Task, chosen.Repos)
+	if result.Dir != "" {
+		r.printNewTask(result)
+	}
+	if worktreeErr, ok := errors.AsType[*app.WorktreeCreateError](err); ok {
+		fmt.Fprintf(r.env.Stderr, "ws: %v\n", worktreeErr)
+		fmt.Fprintf(r.env.Stderr, "作成済みのものは残しています(%d / %d repo)\n", len(result.Worktrees), len(chosen.Repos))
+		return exitError{ExitFailure}
+	}
+	return err
 }
 
 func (r *runner) cloneCommand() *cobra.Command {
@@ -197,6 +224,19 @@ func (r *runner) resolveTaskForPrompt(task string) (resolved string, ask bool, e
 	return resolved, false, err
 }
 
+// resolveTaskOrChoose resolves the task, and lets the user pick one when the current directory is outside any task and a prompt is possible.
+func (r *runner) resolveTaskOrChoose(cmd *cobra.Command, task string) (string, error) {
+	resolved, ask, err := r.resolveTaskForPrompt(task)
+	if err != nil || !ask {
+		return resolved, err
+	}
+	chosen, err := r.prompter().ChooseTask(cmd.Context())
+	if err != nil {
+		return "", err
+	}
+	return r.app.ResolveTask(chosen)
+}
+
 func (r *runner) runAdd(cmd *cobra.Command, opts app.AddOptions) error {
 	if opts.Base != "" && !opts.Create {
 		return usagef("--base は --create と一緒に指定してください")
@@ -273,7 +313,7 @@ func (r *runner) worktreeLsCommand() *cobra.Command {
 		Short: "task 内の worktree の一覧",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			resolved, err := r.app.ResolveTask(task)
+			resolved, err := r.resolveTaskOrChoose(cmd, task)
 			if err != nil {
 				return err
 			}
@@ -296,7 +336,7 @@ func (r *runner) worktreeLintCommand() *cobra.Command {
 		Short: "task 内の規約違反と壊れた worktree を検査する",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			resolved, err := r.app.ResolveTask(task)
+			resolved, err := r.resolveTaskOrChoose(cmd, task)
 			if err != nil {
 				return err
 			}
@@ -317,7 +357,7 @@ func (r *runner) worktreePullCommand() *cobra.Command {
 			if err := r.app.RefuseInsideAgent("ws worktree pull"); err != nil {
 				return err
 			}
-			resolved, err := r.app.ResolveTask(task)
+			resolved, err := r.resolveTaskOrChoose(cmd, task)
 			if err != nil {
 				return err
 			}

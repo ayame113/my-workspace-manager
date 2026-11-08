@@ -31,7 +31,7 @@ go install github.com/ayame113/my-workspace-manager/cmd/ws@latest
 
 | コマンド | 内容 |
 | --- | --- |
-| `ws new <task>` | `tasks/<task>/` を作る |
+| `ws new [<task>]` | `tasks/<task>/` を作る。引数なしで対話可能なら、repo と task 名を尋ねて worktree もまとめて作る |
 | `ws clone <url> [<repo>]` | bare repo を `repos/` に用意する |
 | `ws ls` | 全 task の一覧(1 task 1 行。worktree 数と dirty 数) |
 | `ws lint` | workspace 全体の規約違反・壊れた worktree を検査する |
@@ -42,7 +42,7 @@ go install github.com/ayame113/my-workspace-manager/cmd/ws@latest
 | `ws worktree lint` | task 内の規約違反・壊れた worktree を検査する |
 | `ws worktree pull` | fetch して task 内の worktree を fast-forward で追従させる |
 
-`ws worktree` 配下のコマンドは `--task <task>` を省略するとカレントディレクトリが属する task を使う。詳しくは `ws --help` / `ws worktree --help` / `ws worktree <command> --help`。
+`ws worktree` 配下のコマンドは `--task <task>` を省略するとカレントディレクトリが属する task を使う。task の外で、対話可能なら一覧から選ばせる(`ls` / `lint` / `pull` も同じ)。詳しくは `ws --help` / `ws worktree --help` / `ws worktree <command> --help`。
 
 `ws lint` は全 task の検査に加え、git に登録されているがディレクトリが無いもののうち、どの task にも属さないものも報告する。`ws worktree lint` は指定した task の分だけを報告する。lint は報告だけで修正はしない。直せるものには、実行すべき git コマンドを `fix:` に表示する。
 
@@ -52,11 +52,17 @@ go install github.com/ayame113/my-workspace-manager/cmd/ws@latest
 
 ### 対話入力
 
-`ws worktree add` と `ws worktree rename` は、必須の引数が足りないときに [huh](https://github.com/charmbracelet/huh) で対話的に尋ねる。部分的に指定した引数はそのまま使い、足りないものだけを尋ねる。
+`ws new`(引数なし)、`ws worktree add`、`ws worktree rename` は、必須の引数が足りないときに [huh](https://github.com/charmbracelet/huh) で対話的に尋ねる。部分的に指定した引数はそのまま使い、足りないものだけを尋ねる。
 
 - 対話は stdin と stderr の両方が端末で、かつ `CLAUDECODE` が未設定のときだけ出る。それ以外(パイプ、スクリプト、エージェント)では、足りない引数は使い方の誤り(終了コード 2)になる。
 - `add`: task(カレントディレクトリから決まらなければ一覧から)→ repo(`repos/*.git`)→ 種類(既存ブランチ / 新規ブランチ / readonly)→ ブランチ。既存ブランチはローカルと origin のブランチから絞り込みで選ぶ。新規ブランチは名前(`git check-ref-format` で検証)と起点(origin のブランチ。既定は `origin/HEAD`、無ければ `origin/main`)を尋ねる。
 - `rename`: task 内の作業用 worktree から選び、新しいブランチ名を入力する(初期値は現在の名前)。
+- `add` の新規ブランチ名の初期値は、ローカルにも origin にも無いランダムな名前(`brave-otter` のような `<形容詞>-<名詞>`)。Enter だけで採用できる。`rename` の初期値は現在の名前のまま。
+- `ws worktree ls` / `lint` / `pull`: `--task` を省略して task の外にいるときは、task 一覧から絞り込みで選ぶ。task が 1 つも無ければ、選ばせずにエラーにする。`pull` のエージェント拒否は task の解決より先に行う。
+- `ws new`(引数なし): repo を複数選ぶ(0 個でもよい。repo が無ければこの手順は出ない)→ task 名を入力する。task 名の初期値は `<repo 名>-<形容詞>-<名詞>`。repo 名は小文字化して `[a-z0-9]` 以外の連続をハイフン 1 つにし、複数選んだときは共通する先頭の語を 1 回だけ書いて残りを続ける(`app-web` と `app-api` なら `app-web-api-<形容詞>-<名詞>`)。repo を選ばなければ `<形容詞>-<名詞>`。既存の task と重ならない名前になる。
+  - 選んだ各 repo に、新規ブランチで作業用 worktree を作る(`worktree add --create` 相当)。ブランチ名は尋ねず、全 repo 共通のランダムな名前(どの repo のローカルにも origin にも無いもの)。起点は `origin/HEAD`、無ければ `origin/main`(どちらも無い repo があれば、何も作らずエラー)。
+  - 途中の worktree 作成に失敗したら、作成済みのものは残し、どこまでできたかを表示して終了コード 1 にする。
+  - `ws new <task>` のように引数を渡したときは、従来どおり task を作るだけで対話しない。対話できない環境で引数が無ければ終了コード 2。
 - 決まった内容は、引数を全部渡した場合と同じ処理で実行される。
 
 ### ws worktree rename

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,8 @@ type Config struct {
 	Git    gitexec.Runner
 	Getenv func(string) string
 	Getwd  func() (string, error)
+	// IntN returns a value in [0, n). It defaults to math/rand/v2.IntN.
+	IntN func(n int) int
 }
 
 type App struct {
@@ -25,10 +28,15 @@ type App struct {
 	git    gitexec.Runner
 	getenv func(string) string
 	getwd  func() (string, error)
+	intn   func(n int) int
 }
 
 func New(cfg Config) *App {
-	return &App{layout: cfg.Layout, git: cfg.Git, getenv: cfg.Getenv, getwd: cfg.Getwd}
+	intn := cfg.IntN
+	if intn == nil {
+		intn = rand.IntN
+	}
+	return &App{layout: cfg.Layout, git: cfg.Git, getenv: cfg.Getenv, getwd: cfg.Getwd, intn: intn}
 }
 
 type OutsideTaskError struct {
@@ -248,7 +256,8 @@ func (a *App) Add(ctx context.Context, opts AddOptions) (string, error) {
 			return "", fmt.Errorf("ローカルブランチ '%s' は既に存在します", opts.Branch)
 		}
 		// 解決できない名前を渡すと git worktree add は -b を無視し、origin の同名ブランチをローカルに作ってしまう
-		resolvable, err := gitexec.Succeeds(ctx, a.git, bare, "rev-parse", "--verify", "--quiet", opts.Base+"^{commit}")
+		var resolvable bool
+		resolvable, err = gitexec.Succeeds(ctx, a.git, bare, "rev-parse", "--verify", "--quiet", opts.Base+"^{commit}")
 		if err != nil {
 			return "", err
 		}

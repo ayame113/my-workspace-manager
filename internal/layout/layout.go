@@ -3,6 +3,7 @@ package layout
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -120,4 +121,34 @@ func TaskUnder(tasksRoot, path string) (string, bool) {
 
 func WorktreePath(dir, repo, slug string) string {
 	return filepath.Join(dir, repo+"--"+slug)
+}
+
+// RepoTaskPrefix joins the slugs of repos into a task-name prefix, writing their common leading words once
+// (app-web, app-api → app-web-api). It returns "" when no repo has a usable slug.
+func RepoTaskPrefix(repos []string) string {
+	var words [][]string
+	for _, repo := range repos {
+		if slug := BranchSlug(repo); slug != "" {
+			words = append(words, strings.Split(slug, "-"))
+		}
+	}
+	if len(words) == 0 {
+		return ""
+	}
+	common := words[0]
+	for _, w := range words[1:] {
+		n := 0
+		for n < len(common) && n < len(w) && common[n] == w[n] {
+			n++
+		}
+		common = common[:n]
+	}
+	parts := slices.Clone(common)
+	for _, w := range words {
+		rest := strings.Join(w[len(common):], "-")
+		if rest != "" && !slices.Contains(parts, rest) {
+			parts = append(parts, rest)
+		}
+	}
+	return strings.Join(parts, "-")
 }

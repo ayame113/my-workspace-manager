@@ -52,6 +52,8 @@ func OSEnv() Env {
 }
 
 type Prompter interface {
+	ChooseTask(ctx context.Context) (string, error)
+	New(ctx context.Context) (app.NewTaskOptions, error)
 	Add(ctx context.Context, partial app.AddOptions) (app.AddOptions, error)
 	Rename(ctx context.Context, partial app.RenameOptions) (app.RenameOptions, error)
 }

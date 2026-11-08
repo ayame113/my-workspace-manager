@@ -17,14 +17,18 @@ import (
 )
 
 type fakeGit struct {
-	mu       sync.Mutex
-	commands []string
+	mu                sync.Mutex
+	commands          []string
+	failWorktreeAddIn string
 }
 
 func (g *fakeGit) Run(ctx context.Context, dir string, args ...string) (gitexec.Result, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.commands = append(g.commands, strings.Join(args, " "))
+	if args[0] == "worktree" && args[1] == "add" && g.failWorktreeAddIn != "" && strings.HasSuffix(dir, g.failWorktreeAddIn) {
+		return gitexec.Result{ExitCode: 128, Stderr: "boom\n"}, nil
+	}
 	if args[0] == "show-ref" {
 		return gitexec.Result{ExitCode: 1}, nil
 	}
@@ -43,6 +47,21 @@ type fakePrompter struct {
 	addResult   app.AddOptions
 	renameOut   app.RenameOptions
 	err         error
+
+	chooseTaskCalls int
+	chooseTaskOut   string
+	newCalls        int
+	newOut          app.NewTaskOptions
+}
+
+func (p *fakePrompter) ChooseTask(ctx context.Context) (string, error) {
+	p.chooseTaskCalls++
+	return p.chooseTaskOut, p.err
+}
+
+func (p *fakePrompter) New(ctx context.Context) (app.NewTaskOptions, error) {
+	p.newCalls++
+	return p.newOut, p.err
 }
 
 func (p *fakePrompter) Add(ctx context.Context, partial app.AddOptions) (app.AddOptions, error) {
@@ -244,5 +263,161 @@ func TestUserAbortedPrompt(t *testing.T) {
 	}
 	if got := h.stderr.String(); got != "ws: 中断しました\n" {
 		t.Errorf("stderr = %q", got)
+	}
+}
+
+func TestWorktreeCommandsChooseTaskOutsideTask(t *testing.T) {
+	t.Parallel()
+	for _, command := range []string{"ls", "lint", "pull"} {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+			tests := []struct {
+				name       string
+				env        envOptions
+				args       []string
+				wantCode   int
+				wantChoose int
+			}{
+				{"outside a task", envOptions{tty: true}, nil, 0, 1},
+				{"inside a task", envOptions{tty: true, cwd: "tasks/t1"}, nil, 0, 0},
+				{"task flag", envOptions{tty: true}, []string{"--task", "t2"}, 0, 0},
+				{"not a terminal", envOptions{}, nil, 1, 0},
+				{"inside an agent", envOptions{tty: true, claudeCode: true}, nil, 1, 0},
+			}
+			for _, tt := range tests {
+				t.Run(tt.name, func(t *testing.T) {
+					t.Parallel()
+					h := newHarness(t, tt.env)
+					h.prompter.chooseTaskOut = "t1"
+					if got := h.run(append([]string{"worktree", command}, tt.args...)...); got != tt.wantCode {
+						t.Fatalf("exit code = %d, want %d\nstderr: %s", got, tt.wantCode, h.stderr.String())
+					}
+					if h.prompter.chooseTaskCalls != tt.wantChoose {
+						t.Errorf("ChooseTask calls = %d, want %d", h.prompter.chooseTaskCalls, tt.wantChoose)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestPullRefusesInsideAgentBeforeChoosingTask(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, envOptions{tty: true, claudeCode: true})
+	if got := h.run("worktree", "pull"); got != 1 {
+		t.Fatalf("exit code = %d, want 1", got)
+	}
+	if !strings.Contains(h.stderr.String(), "エージェントからは実行できません") {
+		t.Errorf("stderr = %q", h.stderr.String())
+	}
+}
+
+func TestChosenTaskReachesCommand(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, envOptions{tty: true})
+	h.prompter.chooseTaskOut = "nope"
+	if got := h.run("worktree", "ls"); got != 1 {
+		t.Errorf("exit code = %d, want 1 for a task that does not exist", got)
+	}
+}
+
+func TestChooseTaskAbort(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, envOptions{tty: true})
+	h.prompter.err = prompt.ErrAborted
+	if got := h.run("worktree", "ls"); got != cli.ExitInterrupt {
+		t.Errorf("exit code = %d, want %d", got, cli.ExitInterrupt)
+	}
+}
+
+func TestNewInteractive(t *testing.T) {
+	t.Parallel()
+	t.Run("creates the task and a worktree per repo", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t, envOptions{tty: true})
+		h.prompter.newOut = app.NewTaskOptions{Task: "t3", Repos: []string{"r"}}
+		if got := h.run("new"); got != 0 {
+			t.Fatalf("exit code = %d\nstderr: %s", got, h.stderr.String())
+		}
+		taskDir := filepath.Join(h.root, "tasks/t3")
+		if _, err := os.Stat(taskDir); err != nil {
+			t.Fatal(err)
+		}
+		out := h.stdout.String()
+		if !strings.Contains(out, "作成しました: "+taskDir+"\n") || !strings.Contains(out, "作成しました: "+taskDir+"/r--") || !strings.Contains(out, "ブランチ: ") {
+			t.Errorf("stdout = %q", out)
+		}
+		if !slices.ContainsFunc(h.git.commands, func(c string) bool {
+			return strings.HasPrefix(c, "worktree add --no-track -b ") && strings.HasSuffix(c, " old")
+		}) {
+			t.Errorf("git commands = %q", h.git.commands)
+		}
+	})
+
+	t.Run("no repo creates only the task", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t, envOptions{tty: true})
+		h.prompter.newOut = app.NewTaskOptions{Task: "t3"}
+		if got := h.run("new"); got != 0 {
+			t.Fatalf("exit code = %d\nstderr: %s", got, h.stderr.String())
+		}
+		if got := h.stdout.String(); strings.Count(got, "\n") != 1 {
+			t.Errorf("stdout = %q", got)
+		}
+		if slices.ContainsFunc(h.git.commands, func(c string) bool { return strings.HasPrefix(c, "worktree add") }) {
+			t.Error("no worktree must be created")
+		}
+	})
+
+	t.Run("failure keeps what was created and exits 1", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t, envOptions{tty: true})
+		if err := os.MkdirAll(filepath.Join(h.root, "repos/r2.git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		h.git.failWorktreeAddIn = "r2.git"
+		h.prompter.newOut = app.NewTaskOptions{Task: "t3", Repos: []string{"r", "r2"}}
+		if got := h.run("new"); got != 1 {
+			t.Fatalf("exit code = %d, want 1", got)
+		}
+		if !strings.Contains(h.stdout.String(), "tasks/t3/r--") {
+			t.Errorf("stdout = %q", h.stdout.String())
+		}
+		for _, want := range []string{"r2", "boom", "1 / 2"} {
+			if !strings.Contains(h.stderr.String(), want) {
+				t.Errorf("stderr %q lacks %q", h.stderr.String(), want)
+			}
+		}
+	})
+
+	t.Run("abort", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t, envOptions{tty: true})
+		h.prompter.err = prompt.ErrAborted
+		if got := h.run("new"); got != cli.ExitInterrupt {
+			t.Errorf("exit code = %d", got)
+		}
+	})
+
+	for _, tt := range []struct {
+		name string
+		env  envOptions
+		args []string
+		want int
+	}{
+		{"not a terminal", envOptions{}, []string{"new"}, 2},
+		{"inside an agent", envOptions{tty: true, claudeCode: true}, []string{"new"}, 2},
+		{"with an argument", envOptions{tty: true}, []string{"new", "t3"}, 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newHarness(t, tt.env)
+			if got := h.run(tt.args...); got != tt.want {
+				t.Errorf("exit code = %d, want %d", got, tt.want)
+			}
+			if h.prompter.newCalls != 0 {
+				t.Error("prompter must not be called")
+			}
+		})
 	}
 }

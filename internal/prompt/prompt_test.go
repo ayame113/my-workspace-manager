@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"slices"
 	"strings"
 	"testing"
@@ -17,8 +18,22 @@ import (
 
 func newPrompter(t *testing.T, in io.Reader) *Prompter {
 	t.Helper()
+	p, _ := newPrompterAt(t, in)
+	return p
+}
+
+func firstWords(int) int { return 0 }
+
+func newPrompterAt(t *testing.T, in io.Reader) (*Prompter, string) {
+	t.Helper()
+	return newPrompterWithIntN(t, in, firstWords)
+}
+
+func newPrompterWithIntN(t *testing.T, in io.Reader, intn func(int) int) (*Prompter, string) {
+	t.Helper()
 	root := t.TempDir()
 	a := app.New(app.Config{
+		IntN: intn,
 		Layout: layout.FromEnv(func(name string) string {
 			if name == "WS_ROOT" {
 				return root
@@ -29,7 +44,7 @@ func newPrompter(t *testing.T, in io.Reader) *Prompter {
 		Getenv: func(string) string { return "" },
 		Getwd:  func() (string, error) { return root, nil },
 	})
-	return New(a, in, io.Discard)
+	return New(a, in, io.Discard), root
 }
 
 func acceptAny(string) error { return nil }
@@ -117,5 +132,144 @@ func TestSequentialFormsDoNotStealInput(t *testing.T) {
 	}
 	if !slices.Equal(got, []string{"one", "two"}) {
 		t.Errorf("got %q", got)
+	}
+}
+
+func randomName() string { return layout.RandomName(firstWords) }
+
+func TestChooseManyReturnsToggledOptions(t *testing.T) {
+	p := newPrompter(t, strings.NewReader(" \x1b[B\x1b[B \r"))
+	got, err := p.chooseMany(testContext(t), "title", []string{"a", "b", "c"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got, []string{"a", "c"}) {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestChooseManyAllowsNoSelection(t *testing.T) {
+	p := newPrompter(t, strings.NewReader("\r"))
+	got, err := p.chooseMany(testContext(t), "title", []string{"a", "b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestChooseTaskFailsWithoutTasks(t *testing.T) {
+	p := newPrompter(t, strings.NewReader("\r"))
+	if _, err := p.ChooseTask(testContext(t)); err == nil || !strings.Contains(err.Error(), "ws new") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestChooseTaskReturnsSelectedTask(t *testing.T) {
+	p, root := newPrompterAt(t, strings.NewReader("\x1b[B\r"))
+	for _, task := range []string{"a", "b"} {
+		if err := os.MkdirAll(root+"/tasks/"+task, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := p.ChooseTask(testContext(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "b" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestNewAdoptsRandomTaskNameOnEnter(t *testing.T) {
+	p := newPrompter(t, strings.NewReader("\r"))
+	got, err := p.New(testContext(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Task != randomName() || len(got.Repos) != 0 {
+		t.Errorf("got %+v, want task %q and no repos", got, randomName())
+	}
+}
+
+func TestNewAsksReposThenTaskNameWithRepoPrefix(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		reader.Close()
+		writer.Close()
+	})
+	p, root := newPrompterAt(t, reader)
+	for _, repo := range []string{"alpha", "My_Repo"} {
+		if err := os.MkdirAll(root+"/repos/"+repo+".git", 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 次のフォームの入力を先のフォームに読まれないよう、repo 選択が終わるのを待ってから残りを書く
+	go func() {
+		writer.WriteString(" \r")
+		time.Sleep(500 * time.Millisecond)
+		writer.WriteString("\r")
+	}()
+	got, err := p.New(testContext(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := app.NewTaskOptions{Task: "my-repo-" + randomName(), Repos: []string{"My_Repo"}}
+	if got.Task != want.Task || !slices.Equal(got.Repos, want.Repos) {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestNewRegeneratesCollidingInitialTaskName(t *testing.T) {
+	calls := 0
+	intn := func(int) int {
+		calls++
+		if calls <= 2 {
+			return 0
+		}
+		return 1
+	}
+	p, root := newPrompterWithIntN(t, strings.NewReader("\r"), intn)
+	if err := os.MkdirAll(root+"/tasks/"+randomName(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.New(testContext(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := layout.RandomName(func(int) int { return 1 }); got.Task != want {
+		t.Errorf("got %q, want regenerated %q", got.Task, want)
+	}
+}
+
+func TestAddNewBranchDefaultsToRandomName(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	p, root := newPrompterAt(t, strings.NewReader("\r"))
+	if out, err := exec.Command("git", "init", "--quiet", "--bare", root+"/repos/r.git").CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	got, err := p.Add(testContext(t), app.AddOptions{Task: "t", Repo: "r", Create: true, Base: "origin/main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Branch != randomName() {
+		t.Errorf("Branch = %q, want %q", got.Branch, randomName())
+	}
+}
+
+func TestRenameKeepsOldNameAsInitialValue(t *testing.T) {
+	p := newPrompter(t, strings.NewReader("\r"))
+	got, err := p.Rename(testContext(t), app.RenameOptions{Task: "t", Repo: "r", Branch: "old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.To != "old" {
+		t.Errorf("To = %q", got.To)
 	}
 }

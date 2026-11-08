@@ -25,7 +25,7 @@ go install github.com/ayame113/my-workspace-manager/cmd/ws@latest
 - fetch / clone / push / `ws worktree pull` / `ws clone` は自分で実行しない。ユーザーに「別のターミナルで」実行してもらうよう、コピペできるコマンドを提示して依頼する。Claude Code の `!` プレフィックスはパスフレーズ入力ができないので案内しない。
   - 例: `ws worktree pull --task <task>` / `ws clone git@github.com:<owner>/<repo>.git`
 - `CLAUDECODE` 環境変数がある場合、`ws worktree pull` と `ws clone` はエラーで即終了する(ハング防止)。
-- エージェントからは対話入力は出ない(`CLAUDECODE` がある環境では対話しない)。`ws worktree add` / `ws worktree rename` には必要な引数(`--repo` / `--branch` / `--to`、`--create` なら `--base` も)を全部渡す。足りないと使い方の誤り(終了コード 2)になる。
+- エージェントからは対話入力は出ない(`CLAUDECODE` がある環境では対話しない)。`ws worktree add` / `ws worktree rename` には必要な引数(`--repo` / `--branch` / `--to`、`--create` なら `--base` も)を全部渡す。`ws new` も task 名を必ず渡す(引数なしの `ws new` は対話専用)。`ws worktree ls` / `lint` / `pull` は task の外では `--task` を渡す。足りないと使い方の誤り(終了コード 2)かエラーになる。
 - ローカルの `origin/<branch>` は古い可能性がある。ブランチの内容に依存する作業の前に、GitHub MCP でリモートの最新コミットを取得し、`git -C ~/ws/repos/<repo>.git rev-parse origin/<branch>` と比較する。不一致ならユーザーに `ws worktree pull --task <task>` の実行を依頼する。
 - `ws worktree add --create` の `--base`(start-point)は `origin/main` のように明示する。bare repo には通常ローカルの main ブランチが無い。
 
@@ -61,7 +61,7 @@ go install github.com/ayame113/my-workspace-manager/cmd/ws@latest
 ## 使い方
 
 ```
-ws new <task>                              # tasks/<task>/ を作成(既存なら何もせず成功)
+ws new <task>                              # tasks/<task>/ を作成(既存なら何もせず成功)。引数なしの対話での一括作成は人間専用
 ws clone <url> [<repo>]                    # 【ユーザーが実行】bare repo を repos/ に用意
 ws ls                                      # 全 task の一覧(1 task 1 行)
 ws lint                                    # workspace 全体の規約違反・壊れた worktree を検査する

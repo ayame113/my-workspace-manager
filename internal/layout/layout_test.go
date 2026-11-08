@@ -76,3 +76,33 @@ func TestTaskUnder(t *testing.T) {
 		t.Error("outside path belongs to no task")
 	}
 }
+
+func TestRepoTaskPrefix(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		repos []string
+		want  string
+	}{
+		{"none", nil, ""},
+		{"one", []string{"My_Repo.js"}, "my-repo-js"},
+		{"common words once", []string{"app-web", "app-api"}, "app-web-api"},
+		{"no common words", []string{"frontend", "backend"}, "frontend-backend"},
+		{"one is the common part", []string{"app", "app-web"}, "app-web"},
+		{"duplicates", []string{"app", "app"}, "app"},
+		{"unusable slug is skipped", []string{"___", "api"}, "api"},
+		{"common part stops at the first difference", []string{"svc-a-x", "svc-b-x"}, "svc-a-x-b-x"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := layout.RepoTaskPrefix(tt.repos)
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+			if got != "" && !layout.IsValidTaskName(got) {
+				t.Errorf("%q is not a valid task name", got)
+			}
+		})
+	}
+}
