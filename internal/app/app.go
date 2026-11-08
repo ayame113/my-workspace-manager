@@ -207,12 +207,8 @@ func errMissingBranch(branch string) error {
 		"新規ブランチなら --branch <branch> --create --base <start-point> を使ってください", branch, branch)
 }
 
-// Add creates a worktree and returns its path.
+// Add creates a worktree and returns its path. opts.Task must already be resolved.
 func (a *App) Add(ctx context.Context, opts AddOptions) (string, error) {
-	task, err := a.ResolveTask(opts.Task)
-	if err != nil {
-		return "", err
-	}
 	bare, err := a.requireBare(ctx, opts.Repo)
 	if err != nil {
 		return "", err
@@ -221,9 +217,9 @@ func (a *App) Add(ctx context.Context, opts AddOptions) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dir := a.layout.TaskDir(task)
+	dir := a.layout.TaskDir(opts.Task)
 	if opts.ReadOnly {
-		dir = a.layout.ReadonlyDir(task)
+		dir = a.layout.ReadonlyDir(opts.Task)
 	}
 	worktree := layout.WorktreePath(dir, opts.Repo, slug)
 	add := func(args ...string) error {
@@ -286,6 +282,8 @@ type RenameResult struct {
 	NewPath     string
 	Moved       bool
 	HadUpstream bool
+	// UnsetUpstreamErr is set when the rename succeeded but the stale upstream setting could not be removed.
+	UnsetUpstreamErr error
 }
 
 // ValidateBranchName accepts only names that git check-ref-format --branch returns unchanged.
@@ -317,11 +315,9 @@ func (a *App) cwdInside(directory string) (bool, error) {
 	return cwd == root || strings.HasPrefix(cwd, root+"/"), nil
 }
 
+// Rename renames the branch and moves the worktree. opts.Task must already be resolved.
+// A failed rollback or a failed upstream cleanup after a successful rename is reported in the result or error.
 func (a *App) Rename(ctx context.Context, opts RenameOptions) (RenameResult, error) {
-	task, err := a.ResolveTask(opts.Task)
-	if err != nil {
-		return RenameResult{}, err
-	}
 	bare, err := a.requireBare(ctx, opts.Repo)
 	if err != nil {
 		return RenameResult{}, err
@@ -334,7 +330,7 @@ func (a *App) Rename(ctx context.Context, opts RenameOptions) (RenameResult, err
 	if err != nil {
 		return RenameResult{}, err
 	}
-	taskDir := a.layout.TaskDir(task)
+	taskDir := a.layout.TaskDir(opts.Task)
 	oldWorktree := layout.WorktreePath(taskDir, opts.Repo, oldSlug)
 	newWorktree := layout.WorktreePath(taskDir, opts.Repo, newSlug)
 	current := ""
@@ -379,33 +375,31 @@ func (a *App) Rename(ctx context.Context, opts RenameOptions) (RenameResult, err
 		finalPath = newWorktree
 	}
 	// branch -m が成功してから worktree move が失敗した場合に戻せるよう、中断させず最後まで実行する
-	err = a.renameBranchAndMove(context.WithoutCancel(ctx), bare, oldWorktree, finalPath, opts.Branch, opts.To, hadUpstream)
+	ctx = gitexec.Isolated(context.WithoutCancel(ctx))
+	unsetErr, err := a.renameBranchAndMove(ctx, bare, oldWorktree, finalPath, opts.Branch, opts.To, hadUpstream)
 	if err != nil {
 		return RenameResult{}, err
 	}
-	return RenameResult{Old: opts.Branch, New: opts.To, NewPath: finalPath, Moved: moved, HadUpstream: hadUpstream}, nil
+	return RenameResult{Old: opts.Branch, New: opts.To, NewPath: finalPath, Moved: moved, HadUpstream: hadUpstream, UnsetUpstreamErr: unsetErr}, nil
 }
 
-func (a *App) renameBranchAndMove(ctx context.Context, bare, oldWorktree, newWorktree, old, new string, hadUpstream bool) error {
+func (a *App) renameBranchAndMove(ctx context.Context, bare, oldWorktree, newWorktree, old, new string, hadUpstream bool) (unsetUpstreamErr, err error) {
 	if _, err := gitexec.Output(ctx, a.git, oldWorktree, "branch", "--quiet", "-m", old, new); err != nil {
-		return err
+		return nil, err
 	}
 	if oldWorktree != newWorktree {
-		result, err := a.git.Run(ctx, bare, "worktree", "move", oldWorktree, newWorktree)
-		if err == nil && result.ExitCode != 0 {
-			err = &gitexec.ExitError{Stderr: result.Stderr}
-		}
-		if err != nil {
-			a.git.Run(ctx, oldWorktree, "branch", "--quiet", "-m", new, old)
-			return err
+		if _, err := gitexec.Output(ctx, a.git, bare, "worktree", "move", oldWorktree, newWorktree); err != nil {
+			if _, rollbackErr := gitexec.Output(ctx, a.git, oldWorktree, "branch", "--quiet", "-m", new, old); rollbackErr != nil {
+				manual := fmt.Errorf("ブランチ名を元に戻せませんでした。手動で戻してください: git -C %s branch -m %s %s", oldWorktree, new, old)
+				return nil, errors.Join(err, manual, rollbackErr)
+			}
+			return nil, err
 		}
 	}
 	if hadUpstream {
-		if _, err := gitexec.Output(ctx, a.git, newWorktree, "branch", "--quiet", "--unset-upstream", new); err != nil {
-			return err
-		}
+		_, unsetUpstreamErr = gitexec.Output(ctx, a.git, newWorktree, "branch", "--quiet", "--unset-upstream", new)
 	}
-	return nil
+	return unsetUpstreamErr, nil
 }
 
 type WorktreeEntry struct {
@@ -420,7 +414,7 @@ const (
 	KindReadonly = "ro"
 )
 
-func (a *App) listEntries(dir, kind string) ([]WorktreeEntry, error) {
+func entriesIn(dir, kind string) ([]WorktreeEntry, error) {
 	names, err := listWorktreeNames(dir)
 	if err != nil {
 		return nil, err
@@ -432,6 +426,19 @@ func (a *App) listEntries(dir, kind string) ([]WorktreeEntry, error) {
 	return entries, nil
 }
 
+// worktreeEntries lists the work worktrees followed by the readonly ones, without querying git.
+func (a *App) worktreeEntries(task string) ([]WorktreeEntry, error) {
+	work, err := entriesIn(a.layout.TaskDir(task), KindWork)
+	if err != nil {
+		return nil, err
+	}
+	readonly, err := entriesIn(a.layout.ReadonlyDir(task), KindReadonly)
+	if err != nil {
+		return nil, err
+	}
+	return append(work, readonly...), nil
+}
+
 func (e WorktreeEntry) path(l layout.Layout, task string) string {
 	if e.Kind == KindReadonly {
 		return l.ReadonlyDir(task) + "/" + e.Name
@@ -441,7 +448,7 @@ func (e WorktreeEntry) path(l layout.Layout, task string) string {
 
 // ListWorktrees returns the work worktrees followed by the readonly ones.
 func (a *App) ListWorktrees(ctx context.Context, task string) ([]WorktreeEntry, error) {
-	entries, err := a.ListWorktreeNames(task)
+	entries, err := a.worktreeEntries(task)
 	if err != nil {
 		return nil, err
 	}
@@ -483,7 +490,7 @@ func (a *App) ListTasks(ctx context.Context) ([]TaskSummary, error) {
 	}
 	summaries := make([]TaskSummary, 0, len(names))
 	for _, name := range names {
-		entries, err := a.ListWorktrees(ctx, name)
+		entries, err := a.worktreeEntries(name)
 		if err != nil {
 			return nil, err
 		}
@@ -494,7 +501,11 @@ func (a *App) ListTasks(ctx context.Context) ([]TaskSummary, error) {
 			} else {
 				summary.Work++
 			}
-			if entry.Dirty {
+			dirty, err := gitexec.IsDirty(ctx, a.git, entry.path(a.layout, name))
+			if err != nil {
+				return nil, err
+			}
+			if dirty {
 				summary.Dirty++
 			}
 		}

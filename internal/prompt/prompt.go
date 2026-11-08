@@ -25,8 +25,15 @@ func New(a *app.App, in io.Reader, out io.Writer) *Prompter {
 
 const selectHeight = 12
 
+// ErrAborted is returned when the user cancels a prompt (Ctrl-C / Esc).
+var ErrAborted = errors.New("入力が中断されました")
+
 func (p *Prompter) run(ctx context.Context, field huh.Field) error {
-	return huh.NewForm(huh.NewGroup(field)).WithInput(p.in).WithOutput(p.out).RunWithContext(ctx)
+	err := huh.NewForm(huh.NewGroup(field)).WithInput(p.in).WithOutput(p.out).RunWithContext(ctx)
+	if errors.Is(err, huh.ErrUserAborted) {
+		return ErrAborted
+	}
+	return err
 }
 
 func (p *Prompter) choose(ctx context.Context, title string, options []string) (string, error) {
@@ -40,13 +47,19 @@ func (p *Prompter) choose(ctx context.Context, title string, options []string) (
 		Filtering(true).
 		Height(selectHeight).
 		Value(&chosen)
-	return chosen, p.run(ctx, field)
+	if err := p.run(ctx, field); err != nil {
+		return "", err
+	}
+	return chosen, nil
 }
 
 func (p *Prompter) input(ctx context.Context, title, initial string, validate func(string) error) (string, error) {
 	value := initial
 	field := huh.NewInput().Title(title).Value(&value).Validate(validate)
-	return strings.TrimSpace(value), p.run(ctx, field)
+	if err := p.run(ctx, field); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(value), nil
 }
 
 func (p *Prompter) branchName(ctx context.Context, title, initial string) (string, error) {
@@ -72,7 +85,10 @@ func (p *Prompter) chooseMode(ctx context.Context) (addMode, error) {
 		Title("worktree の種類").
 		Options(huh.NewOptions(modeExisting, modeNew, modeReadonly)...).
 		Value(&mode)
-	return mode, p.run(ctx, field)
+	if err := p.run(ctx, field); err != nil {
+		return "", err
+	}
+	return mode, nil
 }
 
 // Add asks for the fields of partial that are empty.
@@ -151,7 +167,10 @@ func (p *Prompter) chooseBase(ctx context.Context, repo string, remote []string)
 		Filtering(true).
 		Height(selectHeight).
 		Value(&chosen)
-	return chosen, p.run(ctx, field)
+	if err := p.run(ctx, field); err != nil {
+		return "", err
+	}
+	return chosen, nil
 }
 
 // Rename asks for the fields of partial that are empty.
@@ -171,7 +190,7 @@ func (p *Prompter) Rename(ctx context.Context, partial app.RenameOptions) (app.R
 		if err != nil {
 			return opts, err
 		}
-		candidates := all[:0:0]
+		var candidates []app.RenameCandidate
 		for _, c := range all {
 			if (opts.Repo == "" || c.Repo == opts.Repo) && (opts.Branch == "" || c.Branch == opts.Branch) {
 				candidates = append(candidates, c)

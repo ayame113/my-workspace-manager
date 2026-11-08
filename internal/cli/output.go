@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/ayame113/my-workspace-manager/internal/app"
@@ -43,6 +44,10 @@ func (r *runner) printRename(result app.RenameResult) {
 	r.printf("リネームしました: %s → %s\n", result.Old, result.New)
 	if result.Moved {
 		r.printf("新しいパス: %s\n", result.NewPath)
+	}
+	if result.UnsetUpstreamErr != nil {
+		fmt.Fprintf(r.env.Stderr, "警告: %s の upstream 設定を外せませんでした: %s\n手動で外すには: git -C %s branch --unset-upstream %s\n",
+			result.New, strings.TrimSpace(result.UnsetUpstreamErr.Error()), result.NewPath, result.New)
 	}
 	if result.HadUpstream {
 		r.printf("origin/%[1]s は残っています。リモートに反映するには(別ターミナルで):\n"+

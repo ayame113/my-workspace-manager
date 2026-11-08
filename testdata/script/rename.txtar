@@ -57,6 +57,19 @@ exists $TASK/myrepo--taken
 exec git -C $TASK/myrepo--taken branch --show-current
 stdout '^taken$'
 
+# worktree move が失敗したら、ブランチ名を元に戻す
+exec ws worktree add --task t-ren --repo myrepo --branch locked -c --base origin/review
+exec git -C $BARE worktree lock $TASK/myrepo--locked
+! exec ws worktree rename --task t-ren --repo myrepo --branch locked --to moved
+stderr 'locked'
+exists $TASK/myrepo--locked
+! exists $TASK/myrepo--moved
+exec git -C $TASK/myrepo--locked branch --show-current
+stdout '^locked$'
+exec git -C $BARE show-ref --verify --quiet refs/heads/locked
+! exec git -C $BARE show-ref --verify --quiet refs/heads/moved
+exec git -C $BARE worktree unlock $TASK/myrepo--locked
+
 # 対象 worktree の中からは移動できない。何も変わらない
 cd $TASK/myrepo--inside
 ! exec ws worktree rename --repo myrepo --branch inside --to outside

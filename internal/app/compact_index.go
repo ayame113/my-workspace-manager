@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strconv"
@@ -66,13 +67,7 @@ func loadCompactIndex(path string) map[string]indexEntry {
 func saveCompactIndex(path string, entries map[string]indexEntry) error {
 	var text strings.Builder
 	text.WriteString(compactIndexHeader + "\n")
-	for _, file := range slices.Sorted(func(yield func(string) bool) {
-		for file := range entries {
-			if !yield(file) {
-				return
-			}
-		}
-	}) {
+	for _, file := range slices.Sorted(maps.Keys(entries)) {
 		entry := entries[file]
 		shared, hash := "0", entry.hash
 		if entry.shared {

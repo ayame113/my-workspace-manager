@@ -59,11 +59,22 @@ func leftovers(t *testing.T, root string) []string {
 
 func TestCompactInterrupted(t *testing.T) {
 	binary := buildWS(t)
+	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
 	for _, worktree := range []string{"a", "b"} {
 		writeNodeModules(t, filepath.Join(root, "tasks", "t1", "repo--"+worktree), 4000)
 	}
-	env := append(os.Environ(), "WS_ROOT="+root)
+	env := append(os.Environ(), "WS_ROOT="+root, "HOME="+os.Getenv("HOME"))
+	runCompact := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command(binary, append([]string{"compact"}, args...)...)
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("compact %v: %v\n%s", args, err, out)
+		}
+		return string(out)
+	}
 
 	for _, delay := range []time.Duration{0, 20 * time.Millisecond, 60 * time.Millisecond, 150 * time.Millisecond} {
 		cmd := exec.Command(binary, "compact")
@@ -91,8 +102,9 @@ func TestCompactInterrupted(t *testing.T) {
 		}
 	}
 
-	if out, err := exec.Command(binary, "compact").CombinedOutput(); err != nil {
-		t.Fatalf("compact after interruption: %v\n%s", err, out)
+	runCompact()
+	if out := runCompact("--dry-run"); !strings.Contains(out, "置き換え対象: 0 ファイル") {
+		t.Fatalf("files are still left to replace after compact:\n%s", out)
 	}
 	for _, worktree := range []string{"a", "b"} {
 		content, err := os.ReadFile(filepath.Join(root, "tasks", "t1", "repo--"+worktree, "node_modules", "p", "f0.js"))

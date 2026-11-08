@@ -48,6 +48,8 @@ go install github.com/ayame113/my-workspace-manager/cmd/ws@latest
 
 終了コードは 0 が成功、1 が実行時の失敗(lint で未解決の問題がある場合を含む)、2 が使い方の誤り、130 が中断(Ctrl-C など)。
 
+`ws clone` が失敗または中断したときは、作りかけの `repos/<repo>.git` を削除する。
+
 ### 対話入力
 
 `ws worktree add` と `ws worktree rename` は、必須の引数が足りないときに [huh](https://github.com/charmbracelet/huh) で対話的に尋ねる。部分的に指定した引数はそのまま使い、足りないものだけを尋ねる。
@@ -62,8 +64,8 @@ go install github.com/ayame113/my-workspace-manager/cmd/ws@latest
 作業用 worktree のブランチをローカルでリネームする。ネットワークは使わないので、エージェントからも実行できる。
 
 - 事前に、worktree が `<old>` を checkout していること、`<new>` が妥当な名前でローカルに無いこと、slug が変わるなら移動先が空いていることを確認する。slug が変わる場合、ws を実行しているカレントディレクトリが対象 worktree 配下だと拒否する。
-- `git branch -m` の後、slug が変わるときだけ `git worktree move` する。移動に失敗したらブランチ名を戻す。
-- `<old>` に upstream があった場合は upstream を外し、リモートへの反映手順(`git push -u origin <new>` と旧ブランチの削除)を表示する。リモートは変更しない。`_readonly/` の worktree は対象外。
+- `git branch -m` の後、slug が変わるときだけ `git worktree move` する。移動に失敗したらブランチ名を戻す(戻せなかった場合は、手動で戻すコマンドを表示する)。
+- `<old>` に upstream があった場合は upstream を外し、リモートへの反映手順(`git push -u origin <new>` と旧ブランチの削除)を表示する。upstream を外せなかった場合も rename は成功として扱い、警告を出す。リモートは変更しない。`_readonly/` の worktree は対象外。
 
 ### ws compact
 
@@ -78,7 +80,6 @@ go install github.com/ayame113/my-workspace-manager/cmd/ws@latest
 | 変数 | 内容 |
 | --- | --- |
 | `WS_ROOT` | ワークスペースのルート。既定は `~/ws` |
-| `WS_TEST_BIN` | 統合テストで使う ws バイナリ。未設定ならテストがビルドする |
 
 ## 開発
 

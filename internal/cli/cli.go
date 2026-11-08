@@ -8,7 +8,6 @@ import (
 	"os"
 	"runtime/debug"
 
-	"charm.land/huh/v2"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
@@ -121,9 +120,6 @@ func (r *runner) exitCode(ctx context.Context, root *cobra.Command, args []strin
 		return exit.code
 	}
 	if err == nil {
-		if ctx.Err() != nil {
-			return ExitInterrupt
-		}
 		return ExitOK
 	}
 	if _, ok := errors.AsType[usageError](err); ok || !r.started {
@@ -132,10 +128,7 @@ func (r *runner) exitCode(ctx context.Context, root *cobra.Command, args []strin
 		fmt.Fprintf(stderr, "詳しくは '%s --help' を参照してください\n", target.CommandPath())
 		return ExitUsage
 	}
-	if errors.Is(err, huh.ErrUserAborted) {
-		return ExitInterrupt
-	}
-	if ctx.Err() != nil {
+	if errors.Is(err, prompt.ErrAborted) || ctx.Err() != nil {
 		fmt.Fprintln(stderr, "ws: 中断しました")
 		return ExitInterrupt
 	}

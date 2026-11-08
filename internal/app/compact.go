@@ -228,13 +228,11 @@ func (a *App) Compact(ctx context.Context, dryRun bool, notify func(CompactEvent
 		group := bySize[size]
 		groups = append(groups, group)
 		if len(group) >= 2 {
-			toHash = slices.AppendSeq(toHash, func(yield func(*compactFile) bool) {
-				for _, file := range group {
-					if file.hash == "" && !yield(file) {
-						return
-					}
+			for _, file := range group {
+				if file.hash == "" {
+					toHash = append(toHash, file)
 				}
-			})
+			}
 		}
 	}
 	for i, file := range toHash {

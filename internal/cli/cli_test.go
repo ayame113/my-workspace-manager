@@ -10,11 +10,10 @@ import (
 	"sync"
 	"testing"
 
-	"charm.land/huh/v2"
-
 	"github.com/ayame113/my-workspace-manager/internal/app"
 	"github.com/ayame113/my-workspace-manager/internal/cli"
 	"github.com/ayame113/my-workspace-manager/internal/gitexec"
+	"github.com/ayame113/my-workspace-manager/internal/prompt"
 )
 
 type fakeGit struct {
@@ -25,9 +24,15 @@ type fakeGit struct {
 func (g *fakeGit) Run(ctx context.Context, dir string, args ...string) (gitexec.Result, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return gitexec.Result{}, err
+	}
 	g.commands = append(g.commands, strings.Join(args, " "))
 	if args[0] == "show-ref" {
 		return gitexec.Result{ExitCode: 1}, nil
+	}
+	if args[0] == "symbolic-ref" {
+		return gitexec.Result{Stdout: "old"}, nil
 	}
 	if args[0] == "check-ref-format" {
 		return gitexec.Result{Stdout: args[len(args)-1]}, nil
@@ -157,12 +162,31 @@ func TestExitCodes(t *testing.T) {
 
 func TestInterruptedContext(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t, envOptions{})
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if got := cli.Run(ctx, []string{"ls"}, h.env); got != cli.ExitInterrupt {
-		t.Errorf("exit code = %d, want %d", got, cli.ExitInterrupt)
+	cancelled := func() context.Context {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		return ctx
 	}
+
+	t.Run("failure caused by cancellation", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t, envOptions{})
+		args := []string{"worktree", "add", "--task", "t1", "--repo", "r", "--branch", "x"}
+		if got := cli.Run(cancelled(), args, h.env); got != cli.ExitInterrupt {
+			t.Errorf("exit code = %d, want %d", got, cli.ExitInterrupt)
+		}
+		if !strings.Contains(h.stderr.String(), "ws: 中断しました") {
+			t.Errorf("stderr = %q", h.stderr.String())
+		}
+	})
+
+	t.Run("success despite cancellation", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t, envOptions{})
+		if got := cli.Run(cancelled(), []string{"ls"}, h.env); got != cli.ExitOK {
+			t.Errorf("exit code = %d, want %d", got, cli.ExitOK)
+		}
+	})
 }
 
 func TestAddPrompt(t *testing.T) {
@@ -255,13 +279,30 @@ func TestRenamePrompt(t *testing.T) {
 		t.Parallel()
 		h := newHarness(t, envOptions{tty: true, cwd: "tasks/t1"})
 		h.prompter.renameOut = chosen
-		h.run("worktree", "rename", "--repo", "r")
+		oldWorktree := filepath.Join(h.root, "tasks/t1/r--old")
+		if err := os.MkdirAll(oldWorktree, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(oldWorktree, ".git"), []byte("gitdir: x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := h.run("worktree", "rename", "--repo", "r"); got != 0 {
+			t.Fatalf("exit code = %d, want 0\nstderr: %s", got, h.stderr.String())
+		}
 		want := []app.RenameOptions{{Task: "t1", Repo: "r"}}
 		if !slices.Equal(h.prompter.renameCalls, want) {
 			t.Errorf("prompter calls = %+v, want %+v", h.prompter.renameCalls, want)
 		}
-		if !strings.Contains(h.stderr.String(), "作業用 worktree") {
-			t.Errorf("the chosen options must reach app.Rename, stderr: %s", h.stderr.String())
+		for _, command := range []string{
+			"branch --quiet -m old new",
+			"worktree move " + oldWorktree + " " + filepath.Join(h.root, "tasks/t1/r--new"),
+		} {
+			if !slices.Contains(h.git.commands, command) {
+				t.Errorf("git command %q was not run; ran %q", command, h.git.commands)
+			}
+		}
+		if !strings.Contains(h.stdout.String(), "リネームしました: old → new") {
+			t.Errorf("stdout = %q", h.stdout.String())
 		}
 	})
 
@@ -280,11 +321,11 @@ func TestRenamePrompt(t *testing.T) {
 func TestUserAbortedPrompt(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, envOptions{tty: true, cwd: "tasks/t1"})
-	h.prompter.err = huh.ErrUserAborted
+	h.prompter.err = prompt.ErrAborted
 	if got := h.run("worktree", "add"); got != cli.ExitInterrupt {
 		t.Errorf("exit code = %d, want %d", got, cli.ExitInterrupt)
 	}
-	if h.stderr.Len() != 0 {
-		t.Errorf("an aborted prompt prints nothing, got %q", h.stderr.String())
+	if got := h.stderr.String(); got != "ws: 中断しました\n" {
+		t.Errorf("stderr = %q", got)
 	}
 }

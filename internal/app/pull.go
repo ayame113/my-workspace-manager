@@ -121,16 +121,9 @@ func (a *App) updateWork(ctx context.Context, worktree string) (pullOutcome, err
 	return pullOutcome{status: PullUpdated, detail: fmt.Sprintf("%s (%s)", branch, after)}, nil
 }
 
-// Pull fetches each repo used by the task once, then reports every worktree through report as it is processed.
-func (a *App) Pull(ctx context.Context, taskOption string, report func(PullEntry)) (PullResult, error) {
-	if err := a.RefuseInsideAgent("ws worktree pull"); err != nil {
-		return PullResult{}, err
-	}
-	task, err := a.ResolveTask(taskOption)
-	if err != nil {
-		return PullResult{}, err
-	}
-	entries, err := a.ListWorktreeNames(task)
+// Pull fetches each repo used by the (already resolved) task once, then reports every worktree through report as it is processed.
+func (a *App) Pull(ctx context.Context, task string, report func(PullEntry)) (PullResult, error) {
+	entries, err := a.worktreeEntries(task)
 	if err != nil {
 		return PullResult{}, err
 	}
@@ -176,17 +169,4 @@ func (a *App) Pull(ctx context.Context, taskOption string, report func(PullEntry
 		report(PullEntry{Kind: entry.Kind, Name: entry.Name, Status: outcome.status, Detail: outcome.detail})
 	}
 	return result, nil
-}
-
-// ListWorktreeNames returns the worktree directories of a task without querying git.
-func (a *App) ListWorktreeNames(task string) ([]WorktreeEntry, error) {
-	work, err := a.listEntries(a.layout.TaskDir(task), KindWork)
-	if err != nil {
-		return nil, err
-	}
-	readonly, err := a.listEntries(a.layout.ReadonlyDir(task), KindReadonly)
-	if err != nil {
-		return nil, err
-	}
-	return append(work, readonly...), nil
 }
