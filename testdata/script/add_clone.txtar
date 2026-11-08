@@ -1,12 +1,3 @@
-# CLAUDECODE があると clone と worktree pull は拒否される
-env CLAUDECODE=1
-wsrc 1 clone file://$WORK/remotes/myrepo.git
-! exec ws clone file://$WORK/remotes/myrepo.git
-stderr 'ws: ws clone は ssh のパスフレーズ入力が必要なため、エージェントからは実行できません'
-! exec ws worktree pull --task t-one
-stderr 'ws: ws worktree pull は ssh のパスフレーズ入力が必要なため'
-env CLAUDECODE=
-
 exec ws new t-one
 ! exec ws worktree add --task t-one --repo myrepo --branch foo
 stderr 'bare repo ''myrepo'' がありません'

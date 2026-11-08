@@ -84,7 +84,7 @@ func version() string {
 }
 
 func (r *runner) interactive() bool {
-	return r.env.StdinIsTerminal && r.env.StderrIsTerminal && r.env.Getenv("CLAUDECODE") == ""
+	return r.env.StdinIsTerminal && r.env.StderrIsTerminal
 }
 
 func (r *runner) prompter() Prompter {

@@ -65,7 +65,7 @@ Claude Code では、代わりにプラグインとして入れることもで�
 
 `ws new`(引数なし)、`ws worktree add`、`ws worktree rename`、`ws skill install`(引数なし)は、必須の引数が足りないときに [huh](https://github.com/charmbracelet/huh) で対話的に尋ねる。部分的に指定した引数はそのまま使い、足りないものだけを尋ねる。
 
-- 対話は stdin と stderr の両方が端末で、かつ `CLAUDECODE` が未設定のときだけ出る。それ以外(パイプ、スクリプト、エージェント)では、足りない引数は使い方の誤り(終了コード 2)になる。
+- 対話は stdin と stderr の両方が端末のときだけ出る。それ以外(パイプ、スクリプト、エージェント)では、足りない引数は使い方の誤り(終了コード 2)になる。
 - `add`: task(カレントディレクトリから決まらなければ一覧から)→ repo(`repos/*.git`)→ 種類(既存ブランチ / 新規ブランチ / readonly)→ ブランチ。既存ブランチはローカルと origin のブランチから絞り込みで選ぶ。新規ブランチは名前(`git check-ref-format` で検証)と起点(origin のブランチ。既定は `origin/HEAD`、無ければ `origin/main`)を尋ねる。
 - `rename`: task 内の作業用 worktree から選び、新しいブランチ名を入力する(初期値は現在の名前)。
 - `add` の新規ブランチ名の初期値は、ローカルにも origin にも無いランダムな名前(`brave-otter` のような `<形容詞>-<名詞>`)。Enter だけで採用できる。`rename` の初期値は現在の名前のまま。

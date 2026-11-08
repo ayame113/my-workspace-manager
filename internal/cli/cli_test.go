@@ -92,9 +92,8 @@ type harness struct {
 }
 
 type envOptions struct {
-	tty        bool
-	claudeCode bool
-	cwd        string
+	tty bool
+	cwd string
 }
 
 func newHarness(t *testing.T, opts envOptions) *harness {
@@ -122,8 +121,6 @@ func newHarness(t *testing.T, opts envOptions) *harness {
 				return root
 			case name == "HOME":
 				return root
-			case name == "CLAUDECODE" && opts.claudeCode:
-				return "1"
 			}
 			return ""
 		},
@@ -202,7 +199,6 @@ func TestAddPrompt(t *testing.T) {
 		{"everything missing", envOptions{tty: true}, []string{"worktree", "add"}, 0, []app.AddOptions{{}}},
 		{"only missing values are asked", envOptions{tty: true, cwd: "tasks/t1"}, []string{"worktree", "add", "--repo", "r", "-c"}, 0, []app.AddOptions{{Task: "t1", Repo: "r", Create: true}}},
 		{"not a terminal", envOptions{}, []string{"worktree", "add"}, 2, nil},
-		{"inside an agent", envOptions{tty: true, claudeCode: true}, []string{"worktree", "add"}, 2, nil},
 		{"complete arguments", envOptions{tty: true, cwd: "tasks/t1"}, []string{"worktree", "add", "--repo", "r", "--branch", "b", "-c", "--base", "origin/main"}, 0, nil},
 	}
 	for _, tt := range tests {
@@ -252,7 +248,6 @@ func TestRenamePrompt(t *testing.T) {
 		env  envOptions
 	}{
 		{"not a terminal", envOptions{cwd: "tasks/t1"}},
-		{"inside an agent", envOptions{tty: true, claudeCode: true, cwd: "tasks/t1"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -295,7 +290,6 @@ func TestWorktreeCommandsChooseTaskOutsideTask(t *testing.T) {
 				{"inside a task", envOptions{tty: true, cwd: "tasks/t1"}, nil, 0, 0},
 				{"task flag", envOptions{tty: true}, []string{"--task", "t2"}, 0, 0},
 				{"not a terminal", envOptions{}, nil, 1, 0},
-				{"inside an agent", envOptions{tty: true, claudeCode: true}, nil, 1, 0},
 			}
 			for _, tt := range tests {
 				t.Run(tt.name, func(t *testing.T) {
@@ -311,17 +305,6 @@ func TestWorktreeCommandsChooseTaskOutsideTask(t *testing.T) {
 				})
 			}
 		})
-	}
-}
-
-func TestPullRefusesInsideAgentBeforeChoosingTask(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, envOptions{tty: true, claudeCode: true})
-	if got := h.run("worktree", "pull"); got != 1 {
-		t.Fatalf("exit code = %d, want 1", got)
-	}
-	if !strings.Contains(h.stderr.String(), "エージェントからは実行できません") {
-		t.Errorf("stderr = %q", h.stderr.String())
 	}
 }
 
@@ -419,7 +402,6 @@ func TestNewInteractive(t *testing.T) {
 		want int
 	}{
 		{"not a terminal", envOptions{}, []string{"new"}, 2},
-		{"inside an agent", envOptions{tty: true, claudeCode: true}, []string{"new"}, 2},
 		{"with an argument", envOptions{tty: true}, []string{"new", "t3"}, 0},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

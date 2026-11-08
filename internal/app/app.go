@@ -90,14 +90,6 @@ func (a *App) ResolveTask(task string) (string, error) {
 	return task, nil
 }
 
-// RefuseInsideAgent rejects commands that may wait for an ssh passphrase when run by an agent.
-func (a *App) RefuseInsideAgent(what string) error {
-	if a.getenv("CLAUDECODE") != "" {
-		return fmt.Errorf("%s は ssh のパスフレーズ入力が必要なため、エージェントからは実行できません。ユーザーに別のターミナルで実行してもらってください", what)
-	}
-	return nil
-}
-
 func (a *App) requireBare(ctx context.Context, repo string) (string, error) {
 	if err := layout.ValidateRepoName(repo); err != nil {
 		return "", err
@@ -157,9 +149,6 @@ func repoNameFromURL(url string) string {
 
 // Clone prepares repos/<repo>.git. repo is derived from url when empty. It returns the bare repo path.
 func (a *App) Clone(ctx context.Context, url, repo string) (path string, err error) {
-	if err := a.RefuseInsideAgent("ws clone"); err != nil {
-		return "", err
-	}
 	if repo == "" {
 		repo = repoNameFromURL(url)
 	}

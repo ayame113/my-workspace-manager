@@ -119,7 +119,7 @@ func cmdWsRC(ts *testscript.TestScript, neg bool, args []string) {
 	}
 	cmd := exec.Command(binary, args[1:]...)
 	cmd.Dir = ts.Getenv("PWD")
-	for _, name := range []string{"PATH", "HOME", "TMPDIR", "WS_ROOT", "CLAUDECODE", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_AUTHOR_DATE", "GIT_COMMITTER_DATE"} {
+	for _, name := range []string{"PATH", "HOME", "TMPDIR", "WS_ROOT", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_AUTHOR_DATE", "GIT_COMMITTER_DATE"} {
 		cmd.Env = append(cmd.Env, name+"="+ts.Getenv(name))
 	}
 	var out bytes.Buffer

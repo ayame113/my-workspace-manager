@@ -25,8 +25,8 @@ go install github.com/ayame113/my-workspace-manager/cmd/ws@latest
 
 - fetch / clone / push / `ws worktree pull` / `ws clone` は自分で実行しない。ユーザーに「別のターミナルで」実行してもらうよう、コピペできるコマンドを提示して依頼する。Claude Code の `!` プレフィックスはパスフレーズ入力ができないので案内しない。
   - 例: `ws worktree pull --task <task>` / `ws clone git@github.com:<owner>/<repo>.git`
-- `CLAUDECODE` 環境変数がある場合、`ws worktree pull` と `ws clone` はエラーで即終了する(ハング防止)。Codex など他のエージェントではこの防止が効かないので、上の規則を必ず守る。
-- エージェントからは対話入力は出ない(stdin が端末でない環境や、`CLAUDECODE` がある環境では対話しない)。`ws worktree add` / `ws worktree rename` には必要な引数(`--repo` / `--branch` / `--to`、`--create` なら `--base` も)を全部渡す。`ws new` も task 名を必ず渡す(引数なしの `ws new` は対話専用)。`ws worktree ls` / `lint` / `pull` は task の外では `--task` を渡す。足りないと使い方の誤り(終了コード 2)かエラーになる。
+- エージェントのシェルには端末が無いので、ssh はパスフレーズを尋ねられずに `Permission denied (publickey)` で失敗する。このエラーが出たら、ユーザーに別のターミナルで実行してもらう。
+- エージェントからは対話入力は出ない(stdin と stderr が端末のときだけ対話する)。`ws worktree add` / `ws worktree rename` には必要な引数(`--repo` / `--branch` / `--to`、`--create` なら `--base` も)を全部渡す。`ws new` も task 名を必ず渡す(引数なしの `ws new` は対話専用)。`ws worktree ls` / `lint` / `pull` は task の外では `--task` を渡す。足りないと使い方の誤り(終了コード 2)かエラーになる。
 - ローカルの `origin/<branch>` は古い可能性がある。ブランチの内容に依存する作業の前に、GitHub MCP でリモートの最新コミットを取得し、`git -C ~/ws/repos/<repo>.git rev-parse origin/<branch>` と比較する。不一致ならユーザーに `ws worktree pull --task <task>` の実行を依頼する。
 - `ws worktree add --create` の `--base`(start-point)は `origin/main` のように明示する。bare repo には通常ローカルの main ブランチが無い。
 
@@ -91,7 +91,7 @@ ws worktree pull                           # 【ユーザーが実行】fetch �
 
 ## ブランチ名の変更(ws worktree rename)
 
-- ローカルだけの操作なので、エージェントが実行してよい(`CLAUDECODE` でも拒否されない)。`_readonly/` の worktree は対象外。
+- ローカルだけの操作なので、エージェントが実行してよい。`_readonly/` の worktree は対象外。
 - slug が変わると worktree のディレクトリも `<repo>--<新slug>` に移動する。移動する場合、ws を実行するカレントディレクトリは対象 worktree の外にする(配下だと拒否される)。
 - `<old>` に upstream があった場合は rename 後に外す。`origin/<old>` は残るので、表示される `git push -u origin <new>` と `git push origin --delete <old>` をユーザーに別のターミナルで実行してもらう。PR がある場合は GitHub の Branches 画面でのリネームを案内する。
 

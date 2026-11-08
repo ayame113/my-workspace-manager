@@ -356,9 +356,6 @@ func (r *runner) worktreePullCommand() *cobra.Command {
 		Short: "fetch して task 内の worktree を追従させる",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := r.app.RefuseInsideAgent("ws worktree pull"); err != nil {
-				return err
-			}
 			resolved, err := r.resolveTaskOrChoose(cmd, task)
 			if err != nil {
 				return err
