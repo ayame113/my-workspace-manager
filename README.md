@@ -8,19 +8,15 @@ git worktree をタスク単位で管理する個人用 CLI `ws` と、それを
 
 - macOS 専用(`ws compact` が APFS の `clonefile(2)` を使うため)
 - git
-- [MoonBit ツールチェーン](https://www.moonbitlang.com/download/)。標準ライブラリに `moonbitlang/core/async` を含む版が必要(moonc v0.10.20 で確認)
+- Go 1.27 以上(ビルド時のみ)
 
 ## インストール
 
 ```sh
-# clone 済みのリポジトリから
-moon install ./cmd/ws
-
-# clone せずに git URL から
-moon install https://github.com/ayame113/my-workspace-manager.git cmd/ws
+go install github.com/ayame113/my-workspace-manager/cmd/ws@latest
 ```
 
-`~/.moon/bin/ws` に入るので、`~/.moon/bin` を PATH に入れる。更新するときは同じコマンドを再実行する。
+`$(go env GOPATH)/bin`(既定は `~/go/bin`)に入るので、PATH に入れる。更新するときは同じコマンドを再実行する。
 
 ### Claude Code のスキル
 
@@ -40,8 +36,8 @@ moon install https://github.com/ayame113/my-workspace-manager.git cmd/ws
 | `ws ls` | 全 task の一覧(1 task 1 行。worktree 数と dirty 数) |
 | `ws lint [--fix]` | workspace 全体の規約違反・壊れた worktree を検査する |
 | `ws compact [--dry-run]` | 全 task の node_modules 内の同一ファイルを clonefile で共有し、容量を減らす |
-| `ws worktree add --repo <repo> --branch <branch> [-c --base <start-point> \| --readonly]` | worktree を作る |
-| `ws worktree rename --repo <repo> --branch <old> --to <new>` | 作業用 worktree のブランチ名を変える。slug が変わればディレクトリも移動する |
+| `ws worktree add [--repo <repo>] [--branch <branch>] [-c --base <start-point> \| --readonly]` | worktree を作る。足りない引数は対話で尋ねる |
+| `ws worktree rename [--repo <repo>] [--branch <old>] [--to <new>]` | 作業用 worktree のブランチ名を変える。slug が変わればディレクトリも移動する。足りない引数は対話で尋ねる |
 | `ws worktree ls` | task 内の worktree の一覧 |
 | `ws worktree lint [--fix]` | task 内の規約違反・壊れた worktree を検査する |
 | `ws worktree pull` | fetch して task 内の worktree を fast-forward で追従させる |
@@ -50,7 +46,16 @@ moon install https://github.com/ayame113/my-workspace-manager.git cmd/ws
 
 `ws lint` は全 task の検査に加え、git に登録されているがディレクトリが無いもののうち、どの task にも属さないものも報告する。`ws worktree lint` は指定した task の分だけを報告する。
 
-終了コードは 0 が成功、1 が実行時の失敗(lint で未解決の問題がある場合を含む)、2 が使い方の誤り。
+終了コードは 0 が成功、1 が実行時の失敗(lint で未解決の問題がある場合を含む)、2 が使い方の誤り、130 が中断(Ctrl-C など)。
+
+### 対話入力
+
+`ws worktree add` と `ws worktree rename` は、必須の引数が足りないときに [huh](https://github.com/charmbracelet/huh) で対話的に尋ねる。部分的に指定した引数はそのまま使い、足りないものだけを尋ねる。
+
+- 対話は stdin と stderr の両方が端末で、かつ `CLAUDECODE` が未設定のときだけ出る。それ以外(パイプ、スクリプト、エージェント)では、足りない引数は使い方の誤り(終了コード 2)になる。
+- `add`: task(カレントディレクトリから決まらなければ一覧から)→ repo(`repos/*.git`)→ 種類(既存ブランチ / 新規ブランチ / readonly)→ ブランチ。既存ブランチはローカルと origin のブランチから絞り込みで選ぶ。新規ブランチは名前(`git check-ref-format` で検証)と起点(origin のブランチ。既定は `origin/HEAD`、無ければ `origin/main`)を尋ねる。
+- `rename`: task 内の作業用 worktree から選び、新しいブランチ名を入力する(初期値は現在の名前)。
+- 決まった内容は、引数を全部渡した場合と同じ処理で実行される。
 
 ### ws worktree rename
 
@@ -78,8 +83,19 @@ moon install https://github.com/ayame113/my-workspace-manager.git cmd/ws
 ## 開発
 
 ```sh
-moon test --target native   # 単体テストと統合テスト(一時ディレクトリにローカル file:// リモートを作って ws を実行する)
-moon check --deny-warn
-moon fmt
-moon info                   # pkg.generated.mbti を更新する
+go test ./...   # 単体テストと結合テスト(testscript。一時ディレクトリにローカル file:// リモートを作って ws を実行する)
+go vet ./...
+gofmt -l .
 ```
+
+構成はフロント / ロジック / 外部呼び出しに分けている。依存の向きは `cli → prompt, app`、`prompt → app`、`app → layout, gitexec, fsx`。
+
+| パッケージ | 役割 |
+| --- | --- |
+| `cmd/ws` | `main`。シグナルを context に変換し、終了コードで `os.Exit` する |
+| `internal/cli` | フロント。cobra のコマンドツリー、フラグから `app` の Options への変換、エラーから終了コードへの変換、結果の整形出力 |
+| `internal/prompt` | フロント(TUI)。huh による対話入力。`cli` から interface 越しに呼ばれる |
+| `internal/app` | ロジック。各コマンドのユースケース(UI を知らない) |
+| `internal/layout` | `WS_ROOT` 配下のパスと命名規則(slug、task 名の検証など) |
+| `internal/gitexec` | 外部呼び出し。git の実行(`Runner` interface) |
+| `internal/fsx` | OS 呼び出し。clonefile、lstat、statfs(`golang.org/x/sys/unix`) |

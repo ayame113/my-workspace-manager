@@ -1,0 +1,33 @@
+# 使い方の誤りは終了コード 2
+wsrc 2
+wsrc 2 bogus
+wsrc 2 new
+wsrc 2 new a b
+wsrc 2 clone
+wsrc 2 compact --task t
+wsrc 2 worktree add --repo r --bogus --branch b
+wsrc 2 worktree add --branch x
+wsrc 2 worktree add --repo r --branch x extra
+wsrc 2 worktree add --repo r --branch x --base origin/review
+wsrc 2 worktree add --repo r --branch x -c
+wsrc 2 worktree add --repo r --branch x --readonly -c --base o
+wsrc 2 worktree add --repo r --branch -x
+wsrc 2 worktree rename --repo r --branch a
+wsrc 2 ls --all
+wsrc 2 lint --task t
+wsrc 2 worktree
+wsrc 2 worktree bogus
+wsrc 2 add --repo r --branch b
+wsrc 2 worktree ls --all
+wsrc 2 worktree lint --task --bogus
+
+# help と version は 0
+wsrc 0 --help
+wsrc 0 worktree add --help
+wsrc 0 -V
+exec ws --version
+stdout '^\S+$'
+
+# 対話できない環境(stdin が TTY でない)では、足りない引数は使い方の誤り
+! exec ws worktree add
+stderr 'error:'

@@ -1,6 +1,0 @@
-import {
-  "my-workspace-manager/ws/internal/errors",
-  "my-workspace-manager/ws/internal/sys",
-}
-
-supported_targets = "native"

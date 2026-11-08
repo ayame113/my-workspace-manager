@@ -1,0 +1,32 @@
+# ws ls は task ごとに 1 行。何も無ければ出力なし
+exec ws ls
+! stdout .
+
+mkremote myrepo b1 b2 b3 b4 b5
+exec ws clone file://$WORK/remotes/myrepo.git
+exec ws new some-task
+exec ws new my-workspace-manager
+exec ws new empty
+exec ws worktree add --task some-task --repo myrepo --branch b1
+exec ws worktree add --task some-task --repo myrepo --branch b2
+exec ws worktree add --task some-task --repo myrepo --branch b3
+exec ws worktree add --task my-workspace-manager --repo myrepo --branch b4
+exec ws worktree add --task my-workspace-manager --repo myrepo --readonly --branch b5
+exec sh -c 'echo dirty > $WS_ROOT/tasks/my-workspace-manager/myrepo--b4/f'
+exec ws ls
+cmp stdout want-ls.txt
+
+# new は既存 task なら何もせず成功する
+exec ws new empty
+cmpenv stdout want-new-existing.txt
+! exec ws new .
+stderr 'task 名は'
+! exec ws new Bad_Task
+stderr 'task 名は'
+
+-- want-ls.txt --
+empty                  0 worktrees                clean
+my-workspace-manager   2 worktrees (1 readonly)   1 dirty
+some-task              3 worktrees                clean
+-- want-new-existing.txt --
+task 'empty' は既に存在します: $WS_ROOT/tasks/empty

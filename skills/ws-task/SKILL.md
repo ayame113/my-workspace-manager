@@ -5,18 +5,17 @@ description: タスク用の作業ディレクトリ(~/ws/tasks/<task>)の作成
 
 # ws-task: タスク単位の worktree 管理
 
-`ws` コマンド(このリポジトリの MoonBit 製ネイティブバイナリ。`~/.moon/bin/ws` にインストールして使う)で、タスク(複数の PR / PBI をまとめる大きな単位)ごとに worktree を管理する。
+`ws` コマンド(このリポジトリの Go 製バイナリ。`go install` でインストールして使う)で、タスク(複数の PR / PBI をまとめる大きな単位)ごとに worktree を管理する。
 
 ## インストール
 
 前提条件とインストール方法の詳細はリポジトリの README.md を参照。
 
 ```
-moon install ./cmd/ws                                                      # clone 済みのリポジトリで
-moon install https://github.com/ayame113/my-workspace-manager.git cmd/ws   # clone せずに
+go install github.com/ayame113/my-workspace-manager/cmd/ws@latest
 ```
 
-- `~/.moon/bin/ws` に入るので、`~/.moon/bin` を PATH に入れる。更新は同じコマンドを再実行する。
+- `$(go env GOPATH)/bin`(既定は `~/go/bin`)に入るので、PATH に入れる。更新は同じコマンドを再実行する。
 - `ws` が見つからない場合、エージェントは自分でインストールせず、上記の手順をユーザーに案内する。
 
 ## エージェントの行動規則(最重要)
@@ -26,6 +25,7 @@ moon install https://github.com/ayame113/my-workspace-manager.git cmd/ws   # clo
 - fetch / clone / push / `ws worktree pull` / `ws clone` は自分で実行しない。ユーザーに「別のターミナルで」実行してもらうよう、コピペできるコマンドを提示して依頼する。Claude Code の `!` プレフィックスはパスフレーズ入力ができないので案内しない。
   - 例: `ws worktree pull --task <task>` / `ws clone git@github.com:<owner>/<repo>.git`
 - `CLAUDECODE` 環境変数がある場合、`ws worktree pull` と `ws clone` はエラーで即終了する(ハング防止)。
+- エージェントからは対話入力は出ない(`CLAUDECODE` がある環境では対話しない)。`ws worktree add` / `ws worktree rename` には必要な引数(`--repo` / `--branch` / `--to`、`--create` なら `--base` も)を全部渡す。足りないと使い方の誤り(終了コード 2)になる。
 - ローカルの `origin/<branch>` は古い可能性がある。ブランチの内容に依存する作業の前に、GitHub MCP でリモートの最新コミットを取得し、`git -C ~/ws/repos/<repo>.git rev-parse origin/<branch>` と比較する。不一致ならユーザーに `ws worktree pull --task <task>` の実行を依頼する。
 - `ws worktree add --create` の `--base`(start-point)は `origin/main` のように明示する。bare repo には通常ローカルの main ブランチが無い。
 
@@ -75,7 +75,7 @@ ws worktree lint [--fix]                   # task 内の規約違反・壊れた
 ws worktree pull                           # 【ユーザーが実行】fetch して task 内の worktree を追従させる
 ```
 
-- トップレベル(`new` / `clone` / `ls` / `lint` / `compact`)は workspace 全体が対象、`ws worktree` 配下は task 内が対象。`worktree add` / `rename` / `ls` / `lint` / `pull` は `--task <task>` で task を指定する。省略するとカレントディレクトリが属する task を使う(`--task .` も同じ)。task の外では `--task` の指定が必要。`worktree add` は `--repo` と `--branch` が必須で、位置引数は受け付けない。オプションの順序は自由。
+- トップレベル(`new` / `clone` / `ls` / `lint` / `compact`)は workspace 全体が対象、`ws worktree` 配下は task 内が対象。`worktree add` / `rename` / `ls` / `lint` / `pull` は `--task <task>` で task を指定する。省略するとカレントディレクトリが属する task を使う(`--task .` も同じ)。task の外では `--task` の指定が必要。`worktree add` は `--repo` と `--branch` が必須(人間がターミナルで実行するときだけ、足りない分を対話で尋ねる)で、位置引数は受け付けない。オプションの順序は自由。
 - 以下のコマンド例の `--task` は省略している(task ルートで実行する前提)。task 外から実行するなら `--task <task>` を付ける。
 - `ws worktree add` はネットワークを使わない。fetch も自動 clone もしない。bare repo が無ければ、実行すべき `ws clone` コマンドがエラーに表示される。
 - `ws worktree add --repo <repo> --branch <branch>` のブランチ解決:
