@@ -34,13 +34,6 @@ ws skill install codex    # ~/.agents/skills/ws-task
 ws skill install          # 対話で選ぶ
 ```
 
-Claude Code では、代わりにプラグインとして入れることもできる(両方入れるとスキルが重複するので、どちらか一方にする)。
-
-```
-/plugin marketplace add ayame113/my-workspace-manager
-/plugin install ws@my-workspace-manager
-```
-
 ## 使い方
 
 トップレベルは workspace 全体、`ws worktree` は task 内が対象。
