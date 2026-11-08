@@ -83,46 +83,11 @@ pub async fn run_inheriting(
 }
 
 ///|
-/// 出力を捨てて実行し、成功したかを返す。起動できない場合も失敗。
-pub async fn run_silently(command : String, args : Array[String]) -> Bool {
-  let result = @process.run(
-    command,
-    args,
-    stdin=Empty,
-    stdout=Discard,
-    stderr=Discard,
-  ) catch {
-    _ => return false
-  }
-  result.exit_code == 0
-}
-
-///|
-/// 終了を待たずに実行し、ws の終了後も動かし続ける。
-pub async fn spawn_in_background(
-  command : String,
-  args : Array[String],
-) -> Unit {
-  @process.spawn_orphan(
-    command,
-    args,
-    stdin=Empty,
-    stdout=Discard,
-    stderr=Discard,
-  ).close()
-}
-
-///|
 /// symlink は辿る。調べられない場合も false。
 pub async fn exists(path : String) -> Bool {
   @fs.exists(path) catch {
     _ => false
   }
-}
-
-///|
-pub async fn is_directory(path : String) -> Bool {
-  @fs.kind(path) == Directory
 }
 
 ///|

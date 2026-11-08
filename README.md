@@ -6,7 +6,7 @@ git worktree をタスク単位で管理する個人用 CLI `ws` と、それを
 
 ## 前提条件
 
-- macOS 専用(node_modules の複製に `clonefile(2)` と `cp -c` を使うため)
+- macOS 専用(node_modules の複製に APFS の `clonefile(2)` を使うため)
 - git
 - npm / node(node_modules キャッシュを使う場合。nodenv の `.node-version` に従う)
 - [MoonBit ツールチェーン](https://www.moonbitlang.com/download/)。標準ライブラリに `moonbitlang/core/async` を含む版が必要(moonc v0.10.20 で確認)
@@ -40,7 +40,7 @@ moon install https://github.com/ayame113/my-workspace-manager.git cmd/ws
 | `ws pull` | fetch して task 内の worktree を fast-forward で追従させる |
 | `ws ls [--all]` | worktree の一覧 |
 | `ws npm ci [-- <npm ci の引数>]` | node_modules を共有キャッシュ経由で用意する |
-| `ws lint [--all] [--fix]` | 規約違反・壊れた worktree・node_modules の状態・削除が中断された trash の残骸を検査する |
+| `ws lint [--all] [--fix]` | 規約違反・壊れた worktree・node_modules の状態を検査する |
 
 `--task` を省略するとカレントディレクトリが属する task を使う。詳しくは `ws --help` / `ws <command> --help`。
 

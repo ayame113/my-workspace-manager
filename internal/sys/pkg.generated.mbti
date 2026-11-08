@@ -8,8 +8,6 @@ pub async fn eprint(String) -> Unit
 
 pub async fn exists(String) -> Bool
 
-pub async fn is_directory(String) -> Bool
-
 pub async fn log(String) -> Unit
 
 pub async fn log_error(String) -> Unit
@@ -22,13 +20,9 @@ pub async fn run_captured(String, Array[String], cwd? : String) -> Captured
 
 pub async fn run_inheriting(String, Array[String], cwd? : String) -> Int32
 
-pub async fn run_silently(String, Array[String]) -> Bool
-
 pub async fn sha256_hex(String) -> String
 
 pub fn sorted(Array[String]) -> Array[String]
-
-pub async fn spawn_in_background(String, Array[String]) -> Unit
 
 pub async fn subdirectory_names(String) -> Array[String]
 

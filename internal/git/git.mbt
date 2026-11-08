@@ -46,15 +46,6 @@ pub async fn short_head(worktree : String) -> String {
 }
 
 ///|
-pub async fn is_ancestor(
-  worktree : String,
-  ancestor : String,
-  descendant : String,
-) -> Bool {
-  succeeds(["-C", worktree, "merge-base", "--is-ancestor", ancestor, descendant])
-}
-
-///|
 pub async fn apply_repo_config(bare : String) -> Unit {
   // 手で切ったブランチの upstream が base(origin/main 等)になると、エディタの push/sync で base に push してしまう
   ignore(output(["-C", bare, "config", "branch.autoSetupMerge", "simple"]))

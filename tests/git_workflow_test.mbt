@@ -178,7 +178,7 @@ async test "pull" {
       #|work  myrepo--feature-abc-1                                   up-to-date feature/ABC-1
       #|work  myrepo--noup                                            skipped    upstream なし
       #|work  myrepo--pull-dirty                                      skipped    未コミット変更あり
-      #|work  myrepo--pull-div                                        skipped    pull/div は upstream と分岐しています(fast-forward 不可)
+      #|work  myrepo--pull-div                                        skipped    pull/div: fatal: Not possible to fast-forward, aborting.
       #|work  myrepo--pull-ff                                         updated    pull/ff (be6549a)
       #|work  other--o1                                               skipped    upstream なし
       #|ro    myrepo--release-wave3-1                                 updated    origin/release/wave3.1 (b891f07)
@@ -189,7 +189,7 @@ async test "pull" {
       #|work  myrepo--feature-abc-1                                   up-to-date feature/ABC-1
       #|work  myrepo--noup                                            skipped    upstream なし
       #|work  myrepo--pull-dirty                                      skipped    未コミット変更あり
-      #|work  myrepo--pull-div                                        skipped    pull/div は upstream と分岐しています(fast-forward 不可)
+      #|work  myrepo--pull-div                                        skipped    pull/div: fatal: Not possible to fast-forward, aborting.
       #|work  myrepo--pull-ff                                         up-to-date pull/ff
       #|work  other--o1                                               skipped    upstream なし
       #|ro    myrepo--release-wave3-1                                 up-to-date origin/release/wave3.1
@@ -200,7 +200,7 @@ async test "pull" {
       #|work  myrepo--feature-abc-1                                   up-to-date feature/ABC-1
       #|work  myrepo--noup                                            skipped    upstream なし
       #|work  myrepo--pull-dirty                                      skipped    未コミット変更あり
-      #|work  myrepo--pull-div                                        skipped    pull/div は upstream と分岐しています(fast-forward 不可)
+      #|work  myrepo--pull-div                                        skipped    pull/div: fatal: Not possible to fast-forward, aborting.
       #|work  myrepo--pull-ff                                         up-to-date pull/ff
       #|work  other--o1                                               error      bare repo 'other' がありません。別ターミナルで次を実行してください:
       #|  ws clone <url> other

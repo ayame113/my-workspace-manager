@@ -49,7 +49,6 @@ async test "Ctrl-C during npm ci leaves no partial node_modules" {
   s.note("stdout: \{s.normalize(@fs.read_text("\{s.root}/out.txt"))}")
   s.note("stderr: \{s.normalize(@fs.read_text("\{s.root}/err.txt"))}")
   s.note("node_modules left: \{@fs.exists("\{worktree}/node_modules")}")
-  s.note("trash emptied: \{s.trash_is_emptied()}")
   let cache = "\{s.ws_root}/.cache/node_modules"
   s.note(
     "cache entries: \{if @fs.exists(cache) { @fs.readdir(cache, include_hidden=true).length() } else { 0 }}",
@@ -61,7 +60,6 @@ async test "Ctrl-C during npm ci leaves no partial node_modules" {
       #|stdout: 
       #|stderr: 
       #|node_modules left: false
-      #|trash emptied: true
       #|cache entries: 0
       #|
     ),

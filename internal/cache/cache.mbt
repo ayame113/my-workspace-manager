@@ -25,26 +25,9 @@ pub async fn cache_has(key : String) -> Bool {
 }
 
 ///|
-/// プロセス間・呼び出し間で衝突しにくい名前の部品。
-fn unique_suffix() -> String {
-  let random = @env.rand(4)
-    .unwrap_or(b"")
-    .iter()
-    .map(byte => byte.to_int().to_string(radix=16))
-    .collect()
-  "\{@env.now()}-\{random.join("")}"
-}
-
-///|
-let cache_key_by_package_dir : Map[String, String] = Map([])
-
-///|
 /// `<package-lock.json の sha256>-abi<ABI>-<platform>-<arch>`。
 /// node を実行できなければ `WsError`。
 pub async fn compute_cache_key(package_dir : String) -> String {
-  if cache_key_by_package_dir.get(package_dir) is Some(key) {
-    return key
-  }
   // nodenv がそのディレクトリの .node-version で node を選ぶため、ABI は ws 自身ではなく対象ディレクトリの node から取る
   let probe = @sys.run_captured(
     "node",
@@ -63,75 +46,26 @@ pub async fn compute_cache_key(package_dir : String) -> String {
       "\{package_dir} で node を実行できません: \{probe.stderr.trim()}",
     )
   }
-  let key = "\{@sys.sha256_hex("\{package_dir}/package-lock.json")}-abi\{probe.stdout}"
-  cache_key_by_package_dir.set(package_dir, key)
-  key
+  "\{@sys.sha256_hex("\{package_dir}/package-lock.json")}-abi\{probe.stdout}"
 }
 
 ///|
-/// 使った方法を返す。
-async fn clone_directory(source : String, destination : String) -> String {
-  if @sys.clonefile(source, destination) {
-    return "clonefile"
-  }
-  @sys.remove_tree(destination)
-  if @sys.run_silently("cp", ["-cR", source, destination]) {
-    return "cp -cR"
-  }
-  raise @errors.WsError("\{source} を \{destination} に複製できません")
-}
-
-///|
-fn trash_root() -> String {
-  "\{@layout.root()}/.cache/trash"
-}
-
-///|
-// rename では mtime が変わらないので、退避時刻は名前(`<名前>-<ミリ秒>-<乱数>`)から取る
-fn trashed_at(name : String) -> UInt64? {
-  let parts = name.split("-").collect()
-  guard parts.length() >= 3 else { return None }
-  Some(@string.parse_uint64(parts[parts.length() - 2])) catch {
-    _ => None
+fn clone_directory(
+  source : String,
+  destination : String,
+) -> Unit raise @errors.WsError {
+  if !@sys.clonefile(source, destination) {
+    raise @errors.WsError(
+      "\{source} を \{destination} に複製できません",
+    )
   }
 }
 
 ///|
-// 別の ws がまだバックグラウンドで削除中のものを誤検出しないよう、退避から十分経ったものだけを残骸とみなす
-let trash_grace_milliseconds : UInt64 = 10UL * 60UL * 1000UL
-
-///|
-/// 退避から一定時間が過ぎても消えていない trash のエントリのパス。退避時刻が読めないものも含む。
-pub async fn stale_trash_entries() -> Array[String] {
-  let trash = trash_root()
-  if !@sys.exists(trash) {
-    return []
-  }
-  let now = @env.now()
-  @sys.sorted(@fs.readdir(trash, include_hidden=true))
-  .filter(name => {
-    match trashed_at(name) {
-      Some(time) => time + trash_grace_milliseconds <= now
-      None => true
-    }
-  })
-  .map(name => "\{trash}/\{name}")
-}
-
-///|
-/// trash に移してからバックグラウンドで削除する。大きな node_modules の削除を待たないため。無ければ何もしない。
-/// Ctrl-C などのキャンセル中の後始末からも呼ぶので、それ自体は中断されない。
-pub async fn discard_directory(directory : String) -> Unit nocancel {
-  @async.protect_from_cancel(() => {
-    if !@sys.exists(directory) {
-      return
-    }
-    let trash = trash_root()
-    @fs.mkdir(trash, recursive=true, allow_exist=true)
-    let trashed = "\{trash}/\{@path.Path(directory).basename()}-\{unique_suffix()}"
-    @fs.rename(directory, trashed)
-    @sys.spawn_in_background("rm", ["-rf", trashed])
-  })
+/// 失敗やキャンセル(Ctrl-C)の後始末で、作りかけのディレクトリを消す。
+// キャンセル中に呼ばれても削除しきれるよう中断不可にする
+async fn remove_partial(path : String) -> Unit nocancel {
+  @async.protect_from_cancel(() => @sys.remove_tree(path))
 }
 
 ///|
@@ -161,29 +95,14 @@ pub async fn register_in_cache(package_dir : String, key : String) -> Unit {
   if cache_has(key) {
     return
   }
-  @fs.mkdir(cache_root(), recursive=true, allow_exist=true)
-  let staging = "\{cache_root()}/.tmp-\{unique_suffix()}"
-  @fs.mkdir(staging)
   // 登録元にも目印を置く。クローンでブロックが共有されるのでディスク消費は増えない
   write_marker(package_dir, key)
-  stage_cache_entry(package_dir, staging, key) catch {
-    // 並行して同じキーが登録された場合は成功扱い
-    _ if cache_has(key) => ()
-    error => raise error
-  }
-}
-
-///|
-async fn stage_cache_entry(
-  package_dir : String,
-  staging : String,
-  key : String,
-) -> Unit {
-  // 失敗やキャンセル(Ctrl-C)で作りかけのエントリを残さない
-  errdefer discard_directory(staging)
-  ignore(
-    clone_directory("\{package_dir}/node_modules", "\{staging}/node_modules"),
-  )
+  // 完成したものだけがキャッシュとして見えるよう、staging で作ってから rename する
+  let staging = "\{cache_root()}/.tmp-\{key}"
+  @sys.remove_tree(staging)
+  @fs.mkdir(staging, recursive=true)
+  errdefer remove_partial(staging)
+  clone_directory("\{package_dir}/node_modules", "\{staging}/node_modules")
   let meta : Json = {
     "key": Json::string(key),
     "createdAt": Json::number(@env.now().to_double()),
@@ -197,15 +116,14 @@ async fn stage_cache_entry(
 }
 
 ///|
-/// `<package_dir>/node_modules` をキャッシュのクローンで置き換え、使った方法を返す。
-pub async fn place_from_cache(package_dir : String, key : String) -> String {
+/// `<package_dir>/node_modules` をキャッシュのクローンで置き換える。
+pub async fn place_from_cache(package_dir : String, key : String) -> Unit {
   let target = "\{package_dir}/node_modules"
-  discard_directory(target)
+  @sys.remove_tree(target)
   // 目印まで書き終える前に失敗・キャンセルしたら、作りかけの node_modules を残さない
-  errdefer discard_directory(target)
-  let cloning = clone_directory("\{cache_entry_path(key)}/node_modules", target)
+  errdefer remove_partial(target)
+  clone_directory("\{cache_entry_path(key)}/node_modules", target)
   write_marker(package_dir, key)
-  cloning
 }
 
 ///|
@@ -241,15 +159,17 @@ pub async fn ensure_node_modules(
   } else {
     None
   }
+  if key is Some(key) && read_marker(package_dir) == Some(key) {
+    return Ok("node_modules は既に最新です: \{package_dir}")
+  }
   if key is Some(key) && cache_has(key) {
-    return Ok(
-      "キャッシュから復元しました (\{place_from_cache(package_dir, key)}): \{package_dir}",
-    )
+    place_from_cache(package_dir, key)
+    return Ok("キャッシュから復元しました: \{package_dir}")
   }
   let lock_hash = @sys.sha256_hex(lockfile)
   let status = {
     // npm ci は node_modules を作り直すので、キャンセル(Ctrl-C)で中断された作りかけは消してよい
-    errdefer discard_directory("\{package_dir}/node_modules")
+    errdefer remove_partial("\{package_dir}/node_modules")
     @sys.run_inheriting("npm", ["ci", ..npm_args], cwd=package_dir) catch {
       _ => 1
     }

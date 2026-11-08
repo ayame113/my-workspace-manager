@@ -57,26 +57,20 @@ async fn update_work(worktree : String) -> Outcome {
   if upstream.exit_code != 0 {
     return { status: "skipped", detail: "upstream なし", }
   }
-  let head = @git.output(["-C", worktree, "rev-parse", "HEAD"])
-  if head == upstream.stdout {
-    return { status: "up-to-date", detail: branch, }
+  let head = @git.short_head(worktree)
+  let merge = @git.run([
+    "-C", worktree, "merge", "--quiet", "--ff-only", "@{upstream}",
+  ])
+  if merge.exit_code != 0 {
+    // 先頭は hint: の説明が続くことがあるので、結論の最終行(fatal: ...)を使う
+    let reason = merge.stderr.trim().split("\n").last().unwrap_or("")
+    return { status: "skipped", detail: "\{branch}: \{reason}", }
   }
-  if @git.is_ancestor(worktree, upstream.stdout, head) {
-    return {
-      status: "up-to-date",
-      detail: "\{branch} (upstream より先行)",
-    }
+  if @git.short_head(worktree) == head {
+    { status: "up-to-date", detail: branch, }
+  } else {
+    { status: "updated", detail: "\{branch} (\{@git.short_head(worktree)})", }
   }
-  if !@git.is_ancestor(worktree, head, upstream.stdout) {
-    return {
-      status: "skipped",
-      detail: "\{branch} は upstream と分岐しています(fast-forward 不可)",
-    }
-  }
-  ignore(
-    @git.output(["-C", worktree, "merge", "--quiet", "--ff-only", "@{upstream}"]),
-  )
-  { status: "updated", detail: "\{branch} (\{@git.short_head(worktree)})", }
 }
 
 ///|

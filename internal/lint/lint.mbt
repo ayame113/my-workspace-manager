@@ -98,31 +98,16 @@ async fn lint_node_modules(
 }
 
 ///|
-/// worktree として扱えない理由。問題が無ければ gitdir を返す。
-async fn read_gitdir(worktree : String) -> Result[String, String] {
-  let git_path = "\{worktree}/.git"
-  if !@sys.exists(git_path) {
-    return Err(".git がありません")
+/// git が worktree として認識すれば、その gitdir(`<bare>/worktrees/<name>`)を返す。
+async fn read_gitdir(worktree : String) -> String? {
+  // .git が無いディレクトリでは、親ディレクトリの repo を拾わないようにする
+  guard @sys.exists("\{worktree}/.git") else { return None }
+  let result = @git.run(["-C", worktree, "rev-parse", "--absolute-git-dir"])
+  if result.exit_code == 0 {
+    Some(result.stdout)
+  } else {
+    None
   }
-  if @sys.is_directory(git_path) {
-    return Err(
-      ".git がディレクトリです(worktree ではなく独立した repo)",
-    )
-  }
-  let gitdir = @fs.read_text(git_path)
-    .split("\n")
-    .find_first(line => line.has_prefix("gitdir:"))
-  guard gitdir is Some(line) else {
-    return Err(".git ファイルの内容が不正です")
-  }
-  let gitdir = line["gitdir:".length():].trim().to_owned()
-  if !@sys.exists(gitdir) {
-    return Err("gitdir が存在しません: \{gitdir}")
-  }
-  if !@git.succeeds(["-C", worktree, "rev-parse", "--git-dir"]) {
-    return Err("git が worktree として認識しません")
-  }
-  Ok(gitdir)
 }
 
 ///|
@@ -159,15 +144,12 @@ async fn lint_worktree(
     context.unscannable += 1
     return
   }
-  let gitdir = match read_gitdir(directory) {
-    Ok(gitdir) => gitdir
-    Err(problem) => {
-      manual(
-        "broken-worktree", problem, "不要なら削除し、必要なら ws add で作り直す",
-      )
-      context.unscannable += 1
-      return
-    }
+  guard read_gitdir(directory) is Some(gitdir) else {
+    manual(
+      "broken-worktree", "git が worktree として認識しません", "不要なら削除し、必要なら ws add で作り直す",
+    )
+    context.unscannable += 1
+    return
   }
   let actual_bare = realpath_or_none(
     @path.Path(gitdir).dirname().dirname().to_string(),
@@ -311,18 +293,6 @@ async fn lint_dangling_registrations(context : Context) -> Unit {
 }
 
 ///|
-async fn lint_trash(context : Context) -> Unit {
-  for entry in @cache.stale_trash_entries() {
-    context.reporter("-", entry)(
-      "trash",
-      "バックグラウンド削除が中断された trash の残骸です",
-      "削除する",
-      Some(async fn() { @sys.remove_tree(entry) }),
-    )
-  }
-}
-
-///|
 async fn lint_unreferenced_caches(context : Context) -> Unit {
   if context.unscannable > 0 {
     return
@@ -332,10 +302,8 @@ async fn lint_unreferenced_caches(context : Context) -> Unit {
       context.reporter("-", key)(
         "unreferenced-cache",
         "どの worktree の目印からも参照されていないキャッシュです",
-        "キャッシュを削除(trash 経由)",
-        Some(async fn() {
-          @cache.discard_directory(@cache.cache_entry_path(key))
-        }),
+        "キャッシュを削除",
+        Some(async fn() { @sys.remove_tree(@cache.cache_entry_path(key)) }),
       )
     }
   }
@@ -362,8 +330,6 @@ pub async fn run(task : String?, fix : Bool) -> Int32 {
     }
   }
   lint_dangling_registrations(context)
-  // trash は全 task 共通で task の走査結果にも依存しないので、--task 指定時も検査する
-  lint_trash(context)
   if context.issues.is_empty() {
     @sys.log("問題はありません")
     return 0

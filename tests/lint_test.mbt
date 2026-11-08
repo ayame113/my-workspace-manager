@@ -30,9 +30,7 @@ async test "lint node_modules states and unreferenced caches" {
   )
   ignore(lint(["--task", "t1"]))
   ignore(lint(["--all", "--fix"]))
-  s.note(
-    "trash emptied: \{s.trash_is_emptied()}, cache entries: \{s.cache_entries()}",
-  )
+  s.note("cache entries: \{s.cache_entries()}")
   ignore(lint(["--all"]))
   inspect(
     s.transcript.to_string(),
@@ -71,12 +69,12 @@ async test "lint node_modules states and unreferenced caches" {
       #|[-] <sha256>-abi<node>
       #|  種類: unreferenced-cache
       #|  内容: どの worktree の目印からも参照されていないキャッシュです
-      #|  fix: キャッシュを削除(trash 経由)
+      #|  fix: キャッシュを削除
       #|  結果: 修正しました
       #|
       #|1 件の問題(未解決 0 件)
       #|rc=0
-      #|trash emptied: true, cache entries: 2
+      #|cache entries: 2
       #|問題はありません
       #|rc=0
       #|
@@ -245,7 +243,7 @@ async test "lint worktree rules" {
       #|  結果: 手動対応が必要です
       #|[t4] npmrepo--ghost
       #|  種類: broken-worktree
-      #|  内容: .git がありません
+      #|  内容: git が worktree として認識しません
       #|  fix: 手動対応: 不要なら削除し、必要なら ws add で作り直す
       #|  結果: 手動対応が必要です
       #|[t4] random-dir
@@ -270,51 +268,6 @@ async test "lint worktree rules" {
       #|rc=1
       #|unreferenced reported while unscannable: false
       #|unreferenced reported: true
-      #|
-    ),
-  )
-}
-
-///|
-async test "lint reports and removes stale trash entries" {
-  let s = Sandbox::new()
-  defer s.cleanup()
-  s.setup_ws(["new", "t1"])
-  let trash = "\{s.ws_root}/.cache/trash"
-  let stale = "\{trash}/node_modules-1000-ab"
-  let fresh = "\{trash}/node_modules-\{@env.now()}-cd"
-  for dir in [stale, fresh] {
-    @fs.mkdir("\{dir}/dep", recursive=true)
-  }
-  ignore(s.ws(["lint", "--task", "t1"]))
-  ignore(s.ws(["lint", "--task", "t1", "--fix"]))
-  s.note(
-    "stale exists: \{@fs.exists(stale)}, fresh exists: \{@fs.exists(fresh)}",
-  )
-  ignore(s.ws(["lint", "--task", "t1"]))
-  inspect(
-    s.transcript.to_string(),
-    content=(
-      #|[-] $S/root/.cache/trash/node_modules-1000-ab
-      #|  種類: trash
-      #|  内容: バックグラウンド削除が中断された trash の残骸です
-      #|  fix: 削除する
-      #|
-      #|1 件の問題
-      #|rc=1
-      #|注意: --fix の node_modules 置換は、実行中のプロセス(dev server 等)があると壊れます
-      #|
-      #|[-] $S/root/.cache/trash/node_modules-1000-ab
-      #|  種類: trash
-      #|  内容: バックグラウンド削除が中断された trash の残骸です
-      #|  fix: 削除する
-      #|  結果: 修正しました
-      #|
-      #|1 件の問題(未解決 0 件)
-      #|rc=0
-      #|stale exists: false, fresh exists: true
-      #|問題はありません
-      #|rc=0
       #|
     ),
   )
