@@ -31,22 +31,28 @@ moon install https://github.com/ayame113/my-workspace-manager.git cmd/ws
 
 ## 使い方
 
+トップレベルは workspace 全体、`ws worktree` は task 内が対象。
+
 | コマンド | 内容 |
 | --- | --- |
 | `ws new <task>` | `tasks/<task>/` を作る |
 | `ws clone <url> [<repo>]` | bare repo を `repos/` に用意する |
-| `ws add --repo <repo> --branch <branch> [-c --base <start-point> \| --readonly]` | worktree を作る |
-| `ws rename --repo <repo> --branch <old> --to <new>` | 作業用 worktree のブランチ名を変える。slug が変わればディレクトリも移動する |
-| `ws pull` | fetch して task 内の worktree を fast-forward で追従させる |
-| `ws ls [--all]` | worktree の一覧 |
+| `ws ls` | 全 task の一覧(1 task 1 行。worktree 数と dirty 数) |
+| `ws lint [--fix]` | workspace 全体の規約違反・壊れた worktree を検査する |
 | `ws compact [--dry-run]` | 全 task の node_modules 内の同一ファイルを clonefile で共有し、容量を減らす |
-| `ws lint [--all] [--fix]` | 規約違反・壊れた worktree を検査する |
+| `ws worktree add --repo <repo> --branch <branch> [-c --base <start-point> \| --readonly]` | worktree を作る |
+| `ws worktree rename --repo <repo> --branch <old> --to <new>` | 作業用 worktree のブランチ名を変える。slug が変わればディレクトリも移動する |
+| `ws worktree ls` | task 内の worktree の一覧 |
+| `ws worktree lint [--fix]` | task 内の規約違反・壊れた worktree を検査する |
+| `ws worktree pull` | fetch して task 内の worktree を fast-forward で追従させる |
 
-`--task` を省略するとカレントディレクトリが属する task を使う。詳しくは `ws --help` / `ws <command> --help`。
+`ws worktree` 配下のコマンドは `--task <task>` を省略するとカレントディレクトリが属する task を使う。詳しくは `ws --help` / `ws worktree --help` / `ws worktree <command> --help`。
+
+`ws lint` は全 task の検査に加え、git に登録されているがディレクトリが無いもののうち、どの task にも属さないものも報告する。`ws worktree lint` は指定した task の分だけを報告する。
 
 終了コードは 0 が成功、1 が実行時の失敗(lint で未解決の問題がある場合を含む)、2 が使い方の誤り。
 
-### ws rename
+### ws worktree rename
 
 作業用 worktree のブランチをローカルでリネームする。ネットワークは使わないので、エージェントからも実行できる。
 

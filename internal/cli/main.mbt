@@ -1,14 +1,8 @@
 ///|
-async fn resolve(target : Target) -> String? {
-  match target {
-    AllTasks => None
-    Task(task) =>
-      Some(
-        @layout.resolve_existing_task(
-          task, "--task <task> か --all を指定してください",
-        ),
-      )
-  }
+async fn resolve_task(task : String?) -> String {
+  @layout.resolve_existing_task(
+    task, "--task <task> を指定してください",
+  )
 }
 
 ///|
@@ -16,29 +10,16 @@ async fn execute(invocation : Invocation) -> Int32 {
   match invocation {
     New(task~) => cmd_new(task)
     Clone(url~, repo~) => cmd_clone(url, repo)
-    Add(task~, repo~, branch~, base~, read_only~) =>
-      cmd_add(
-        @layout.resolve_existing_task(
-          task, "--task <task> を指定してください",
-        ),
-        repo,
-        branch,
-        base~,
-        read_only~,
-      )
-    Rename(task~, repo~, branch~, to~) =>
-      cmd_rename(
-        @layout.resolve_existing_task(
-          task, "--task <task> を指定してください",
-        ),
-        repo,
-        branch,
-        to,
-      )
-    Pull(task~) => cmd_pull(task)
-    Ls(target) => cmd_ls(resolve(target))
+    WorktreeAdd(task~, repo~, branch~, base~, read_only~) =>
+      cmd_add(resolve_task(task), repo, branch, base~, read_only~)
+    WorktreeRename(task~, repo~, branch~, to~) =>
+      cmd_rename(resolve_task(task), repo, branch, to)
+    WorktreePull(task~) => cmd_pull(task)
+    WorktreeLs(task~) => cmd_worktree_ls(resolve_task(task))
+    WorktreeLint(task~, fix~) => @lint.run_task(resolve_task(task), fix)
+    Ls => cmd_ls()
     Compact(dry_run~) => @compact.run(dry_run~)
-    Lint(target, fix~) => @lint.run(resolve(target), fix)
+    Lint(fix~) => @lint.run_workspace(fix)
   }
 }
 

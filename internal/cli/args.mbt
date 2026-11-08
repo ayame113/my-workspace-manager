@@ -11,32 +11,13 @@ fn task_option() -> @argparse.OptionArg {
 }
 
 ///|
-fn all_flag() -> @argparse.FlagArg {
-  FlagArg("all", about="全 task が対象", conflicts_with=["task"])
-}
 
 ///|
-let command : @argparse.Command = Command(
-  "ws",
-  about="git worktree をタスク単位で管理する",
-  version~,
+let worktree_command : @argparse.Command = Command(
+  "worktree",
+  about="task 内の worktree を操作する",
   subcommand_required=true,
   subcommands=[
-    Command("new", about="tasks/<task>/ を作る", positionals=[
-      PositionArg("task", num_args=ValueRange(lower=1, upper=1)),
-    ]),
-    Command("clone", about="bare repo を repos/ に用意する", positionals=[
-      PositionArg(
-        "url",
-        about="リモートの URL",
-        num_args=ValueRange(lower=1, upper=1),
-      ),
-      PositionArg(
-        "repo",
-        about="repo 名。省略すると URL から導出",
-        num_args=ValueRange(lower=0, upper=1),
-      ),
-    ]),
     Command(
       "add",
       about="worktree を作る",
@@ -77,14 +58,46 @@ let command : @argparse.Command = Command(
         OptionArg("to", about="新しいブランチ名", required=true),
       ],
     ),
+    Command("ls", about="task 内の worktree の一覧", options=[
+      task_option(),
+    ]),
+    Command(
+      "lint",
+      about="task 内の規約違反と壊れた worktree を検査する",
+      options=[task_option()],
+      flags=[FlagArg("fix", about="自動で直せる問題を直す")],
+    ),
     Command(
       "pull",
       about="fetch して task 内の worktree を追従させる",
       options=[task_option()],
     ),
-    Command("ls", about="worktree の一覧", options=[task_option()], flags=[
-      all_flag(),
+  ],
+)
+
+///|
+let command : @argparse.Command = Command(
+  "ws",
+  about="git worktree をタスク単位で管理する",
+  version~,
+  subcommand_required=true,
+  subcommands=[
+    Command("new", about="tasks/<task>/ を作る", positionals=[
+      PositionArg("task", num_args=ValueRange(lower=1, upper=1)),
     ]),
+    Command("clone", about="bare repo を repos/ に用意する", positionals=[
+      PositionArg(
+        "url",
+        about="リモートの URL",
+        num_args=ValueRange(lower=1, upper=1),
+      ),
+      PositionArg(
+        "repo",
+        about="repo 名。省略すると URL から導出",
+        num_args=ValueRange(lower=0, upper=1),
+      ),
+    ]),
+    Command("ls", about="全 task の一覧(1 task 1 行)"),
     Command(
       "compact",
       about="全 task の node_modules 内の同一ファイルを clonefile で共有し、容量を減らす",
@@ -97,42 +110,37 @@ let command : @argparse.Command = Command(
     ),
     Command(
       "lint",
-      about="規約違反と壊れた worktree を検査する",
-      options=[task_option()],
-      flags=[
-        all_flag(),
-        FlagArg("fix", about="自動で直せる問題を直す"),
-      ],
+      about="workspace 全体の規約違反と壊れた worktree を検査する",
+      flags=[FlagArg("fix", about="自動で直せる問題を直す")],
     ),
+    worktree_command,
   ],
 )
-
-///|
-/// `ls` / `lint` の対象。
-#derive(Debug)
-priv enum Target {
-  AllTasks
-  /// `None` ならカレントディレクトリが属する task
-  Task(String?)
-}
 
 ///|
 #derive(Debug)
 priv enum Invocation {
   New(task~ : String)
   Clone(url~ : String, repo~ : String?)
-  Add(
+  WorktreeAdd(
     task~ : String?,
     repo~ : String,
     branch~ : String,
     base~ : String?,
     read_only~ : Bool
   )
-  Rename(task~ : String?, repo~ : String, branch~ : String, to~ : String)
-  Pull(task~ : String?)
-  Ls(Target)
+  WorktreeRename(
+    task~ : String?,
+    repo~ : String,
+    branch~ : String,
+    to~ : String
+  )
+  WorktreePull(task~ : String?)
+  WorktreeLs(task~ : String?)
+  WorktreeLint(task~ : String?, fix~ : Bool)
+  Ls
   Compact(dry_run~ : Bool)
-  Lint(Target, fix~ : Bool)
+  Lint(fix~ : Bool)
 }
 
 ///|
@@ -158,34 +166,59 @@ fn parse(argv : Array[String]) -> ParseResult {
   guard matches.subcommand is Some((name, args)) else {
     return Usage(command.render_help())
   }
-  let text = (key : String) => {
-    args.values.get(key).bind(values => values.get(0))
-  }
-  let flag = (key : String) => args.flags.get(key).unwrap_or(false)
-  let target = () => if flag("all") { AllTasks } else { Task(text("task")) }
   let invocation = match name {
-    "new" => New(task=text("task").unwrap_or(""))
-    "clone" => Clone(url=text("url").unwrap_or(""), repo=text("repo"))
-    "add" =>
-      Add(
-        task=text("task"),
-        repo=text("repo").unwrap_or(""),
-        branch=text("branch").unwrap_or(""),
-        base=text("base"),
-        read_only=flag("readonly"),
-      )
-    "rename" =>
-      Rename(
-        task=text("task"),
-        repo=text("repo").unwrap_or(""),
-        branch=text("branch").unwrap_or(""),
-        to=text("to").unwrap_or(""),
-      )
-    "pull" => Pull(task=text("task"))
-    "ls" => Ls(target())
-    "lint" => Lint(target(), fix=flag("fix"))
-    "compact" => Compact(dry_run=flag("dry-run"))
+    "worktree" => {
+      guard args.subcommand is Some((worktree_name, worktree_args)) else {
+        return Usage(worktree_command.render_help())
+      }
+      match parse_worktree(worktree_name, worktree_args) {
+        Some(invocation) => invocation
+        None => return Usage(worktree_command.render_help())
+      }
+    }
+    "new" => New(task=text(args, "task").unwrap_or(""))
+    "clone" =>
+      Clone(url=text(args, "url").unwrap_or(""), repo=text(args, "repo"))
+    "ls" => Ls
+    "lint" => Lint(fix=flag(args, "fix"))
+    "compact" => Compact(dry_run=flag(args, "dry-run"))
     _ => return Usage(command.render_help())
   }
   Run(invocation)
+}
+
+///|
+fn text(args : @argparse.Matches, key : String) -> String? {
+  args.values.get(key).bind(values => values.get(0))
+}
+
+///|
+fn flag(args : @argparse.Matches, key : String) -> Bool {
+  args.flags.get(key).unwrap_or(false)
+}
+
+///|
+fn parse_worktree(name : String, args : @argparse.Matches) -> Invocation? {
+  let invocation = match name {
+    "add" =>
+      WorktreeAdd(
+        task=text(args, "task"),
+        repo=text(args, "repo").unwrap_or(""),
+        branch=text(args, "branch").unwrap_or(""),
+        base=text(args, "base"),
+        read_only=flag(args, "readonly"),
+      )
+    "rename" =>
+      WorktreeRename(
+        task=text(args, "task"),
+        repo=text(args, "repo").unwrap_or(""),
+        branch=text(args, "branch").unwrap_or(""),
+        to=text(args, "to").unwrap_or(""),
+      )
+    "ls" => WorktreeLs(task=text(args, "task"))
+    "lint" => WorktreeLint(task=text(args, "task"), fix=flag(args, "fix"))
+    "pull" => WorktreePull(task=text(args, "task"))
+    _ => return None
+  }
+  Some(invocation)
 }

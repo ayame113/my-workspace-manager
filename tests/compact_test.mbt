@@ -35,7 +35,9 @@ async test "compact shares identical node_modules files" {
   s.make_remote("myrepo", ["b1", "b2", "b3"])
   s.setup_ws(["new", "t1"])
   for branch in ["b1", "b2"] {
-    s.setup_ws(["add", "--task", "t1", "--repo", "myrepo", "--branch", branch])
+    s.setup_ws([
+      "worktree", "add", "--task", "t1", "--repo", "myrepo", "--branch", branch,
+    ])
   }
   let a = "\{s.tasks}/t1/myrepo--b1"
   let b = "\{s.tasks}/t1/myrepo--b2"
@@ -95,7 +97,9 @@ async test "compact shares identical node_modules files" {
   make_files(b, [("node_modules/x/diff.js", "a1\n", 0o644)])
   ignore(s.ws(["compact"]))
 
-  s.setup_ws(["add", "--task", "t1", "--repo", "myrepo", "--branch", "b3"])
+  s.setup_ws([
+    "worktree", "add", "--task", "t1", "--repo", "myrepo", "--branch", "b3",
+  ])
   make_files("\{s.tasks}/t1/myrepo--b3", [
     ("node_modules/x/index.js", "same\n", 0o644),
     ("node_modules/x/unique.js", "only here\n", 0o644),

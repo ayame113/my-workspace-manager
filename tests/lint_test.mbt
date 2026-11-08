@@ -5,7 +5,7 @@ async test "lint worktree rules" {
   s.make_remote("myrepo", ["b1", "c1", "c2", "c3", "d1"])
   s.make_remote("other", ["d2"])
   let add = async fn(task : String, args : Array[String]) {
-    s.setup_ws(["add", "--task", task, ..args])
+    s.setup_ws(["worktree", "add", "--task", task, ..args])
   }
   s.setup_ws(["new", "t2"])
   for branch in ["c1", "c2", "c3"] {
@@ -17,7 +17,7 @@ async test "lint worktree rules" {
   ignore(
     s.git("\{t2}/myrepo--c3", ["branch", "-q", "--set-upstream-to=origin/c1"]),
   )
-  ignore(s.ws(["lint", "--task", "t2", "--fix"]))
+  ignore(s.ws(["worktree", "lint", "--task", "t2", "--fix"]))
   s.note(
     "c3 upstream rc=\{s.exec("git", ["-C", "\{t2}/myrepo--c3", "rev-parse", "@{u}"]).code}",
   )
@@ -29,7 +29,7 @@ async test "lint worktree rules" {
   write("\{readonly_worktree}/f", "changed\n")
   ignore(s.git(readonly_worktree, ["commit", "-qam", "c"]))
   write("\{readonly_worktree}/f", "dirty\n")
-  ignore(s.ws(["lint", "--task", "t3"]))
+  ignore(s.ws(["worktree", "lint", "--task", "t3"]))
 
   s.setup_ws(["new", "t4"])
   add("t4", ["--repo", "myrepo", "--branch", "d1"])
@@ -41,11 +41,11 @@ async test "lint worktree rules" {
   @fs.mkdir("\{t4}/_readonly/zzz", recursive=true)
   @fs.mkdir("\{s.tasks}/Bad_Task")
   @fs.rename("\{t4}/other--d2", "\{t4}/myrepo--d9")
-  ignore(s.ws(["lint", "--task", "t4", "--fix"]))
-  ignore(s.ws(["lint", "--task", "Bad_Task"]))
+  ignore(s.ws(["worktree", "lint", "--task", "t4", "--fix"]))
+  ignore(s.ws(["worktree", "lint", "--task", "Bad_Task"]))
   @fs.rmdir(t4, recursive=true)
   @fs.rmdir("\{s.tasks}/Bad_Task", recursive=true)
-  ignore(s.ws(["lint", "--all"]))
+  ignore(s.ws(["lint"]))
   inspect(
     s.transcript.to_string(),
     content=(
@@ -101,7 +101,7 @@ async test "lint worktree rules" {
       #|[t4] myrepo--ghost
       #|  種類: broken-worktree
       #|  内容: git が worktree として認識しません
-      #|  fix: 手動対応: 不要なら削除し、必要なら ws add で作り直す
+      #|  fix: 手動対応: 不要なら削除し、必要なら ws worktree add で作り直す
       #|  結果: 手動対応が必要です
       #|[t4] random-dir
       #|  種類: naming
@@ -146,6 +146,88 @@ async test "lint worktree rules" {
       #|
       #|5 件の問題
       #|rc=1
+      #|
+    ),
+  )
+}
+
+///|
+async test "lint scopes" {
+  let s = Sandbox::new()
+  defer s.cleanup()
+  s.make_remote("myrepo", ["a1", "b1", "c1"])
+  for task in ["ta", "tb"] {
+    s.setup_ws(["new", task])
+  }
+  s.setup_ws([
+    "worktree", "add", "--task", "ta", "--repo", "myrepo", "--branch", "a1",
+  ])
+  s.setup_ws([
+    "worktree", "add", "--task", "tb", "--repo", "myrepo", "--branch", "b1",
+  ])
+  let bare = "\{s.ws_root}/repos/myrepo.git"
+  let stray = "\{s.root}/outside/p/stray"
+  ignore(s.git(bare, ["worktree", "add", "--detach", stray, "origin/c1"]))
+  @fs.rmdir("\{s.tasks}/ta/myrepo--a1", recursive=true)
+  @fs.rmdir("\{s.tasks}/tb/myrepo--b1", recursive=true)
+  @fs.rmdir(stray, recursive=true)
+  ignore(s.ws(["worktree", "lint", "--task", "ta"]))
+  ignore(s.ws(["worktree", "lint", "--task", "tb"]))
+  ignore(s.ws(["lint"]))
+  ignore(s.ws(["lint", "--fix"]))
+  ignore(s.ws(["lint"]))
+  inspect(
+    s.transcript.to_string(),
+    content=(
+      #|[ta] myrepo--a1
+      #|  種類: broken-worktree
+      #|  内容: git に登録されていますがディレクトリがありません: $S/root/tasks/ta/myrepo--a1
+      #|  fix: git worktree prune を実行
+      #|
+      #|1 件の問題
+      #|rc=1
+      #|[tb] myrepo--b1
+      #|  種類: broken-worktree
+      #|  内容: git に登録されていますがディレクトリがありません: $S/root/tasks/tb/myrepo--b1
+      #|  fix: git worktree prune を実行
+      #|
+      #|1 件の問題
+      #|rc=1
+      #|[-] stray
+      #|  種類: broken-worktree
+      #|  内容: git に登録されていますがディレクトリがありません: $S/outside/p/stray
+      #|  fix: git worktree prune を実行
+      #|[ta] myrepo--a1
+      #|  種類: broken-worktree
+      #|  内容: git に登録されていますがディレクトリがありません: $S/root/tasks/ta/myrepo--a1
+      #|  fix: git worktree prune を実行
+      #|[tb] myrepo--b1
+      #|  種類: broken-worktree
+      #|  内容: git に登録されていますがディレクトリがありません: $S/root/tasks/tb/myrepo--b1
+      #|  fix: git worktree prune を実行
+      #|
+      #|3 件の問題
+      #|rc=1
+      #|[-] stray
+      #|  種類: broken-worktree
+      #|  内容: git に登録されていますがディレクトリがありません: $S/outside/p/stray
+      #|  fix: git worktree prune を実行
+      #|  結果: 修正しました
+      #|[ta] myrepo--a1
+      #|  種類: broken-worktree
+      #|  内容: git に登録されていますがディレクトリがありません: $S/root/tasks/ta/myrepo--a1
+      #|  fix: git worktree prune を実行
+      #|  結果: 修正しました
+      #|[tb] myrepo--b1
+      #|  種類: broken-worktree
+      #|  内容: git に登録されていますがディレクトリがありません: $S/root/tasks/tb/myrepo--b1
+      #|  fix: git worktree prune を実行
+      #|  結果: 修正しました
+      #|
+      #|3 件の問題(未解決 0 件)
+      #|rc=0
+      #|問題はありません
+      #|rc=0
       #|
     ),
   )

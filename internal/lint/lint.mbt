@@ -69,7 +69,7 @@ async fn lint_worktree(
   }
   guard read_gitdir(directory) is Some(gitdir) else {
     manual(
-      "broken-worktree", "git が worktree として認識しません", "不要なら削除し、必要なら ws add で作り直す",
+      "broken-worktree", "git が worktree として認識しません", "不要なら削除し、必要なら ws worktree add で作り直す",
     )
     return
   }
@@ -170,7 +170,12 @@ async fn lint_task(issues : Array[Issue], task : String) -> Unit {
 }
 
 ///|
-async fn lint_dangling_registrations(issues : Array[Issue]) -> Unit {
+/// 登録だけ残っているディレクトリのうち `accepts(task)` が真のものを報告する。
+/// `task` は tasks/ 配下なら task 名、配下でなければ `None`。
+async fn lint_dangling_registrations(
+  issues : Array[Issue],
+  accepts : (String?) -> Bool,
+) -> Unit {
   let repos = @layout.repos_root()
   if !@sys.exists(repos) {
     return
@@ -191,11 +196,17 @@ async fn lint_dangling_registrations(issues : Array[Issue]) -> Unit {
       if @sys.exists(worktree) {
         continue
       }
-      let task = match worktree.strip_prefix(@layout.tasks_root() + "/") {
-        Some(relative) => relative.split("/").next().unwrap().to_owned()
-        None => "-"
+      let task = worktree
+        .strip_prefix(@layout.tasks_root() + "/")
+        .map(relative => relative.split("/").next().unwrap().to_owned())
+      if !accepts(task) {
+        continue
       }
-      reporter(issues, task, @path.Path(worktree).basename().to_owned())(
+      reporter(
+        issues,
+        task.unwrap_or("-"),
+        @path.Path(worktree).basename().to_owned(),
+      )(
         "broken-worktree",
         "git に登録されていますがディレクトリがありません: \{worktree}",
         "git worktree prune を実行",
@@ -208,20 +219,33 @@ async fn lint_dangling_registrations(issues : Array[Issue]) -> Unit {
 }
 
 ///|
-/// 検査して結果を表示し、`fix` なら自動修正する。`task` が `None` なら全 task と未参照キャッシュを検査する。
+/// 1 つの task を検査して結果を表示し、`fix` なら自動修正する。
+/// 登録だけ残っているものは、その task 配下のものだけを対象にする。
 /// 未解決の問題が無ければ 0、あれば 1 を返す。
-pub async fn run(task : String?, fix : Bool) -> Int32 {
+pub async fn run_task(task : String, fix : Bool) -> Int32 {
   let issues : Array[Issue] = []
-  match task {
-    Some(task) => lint_task(issues, task)
-    None =>
-      if @sys.exists(@layout.tasks_root()) {
-        for task in @sys.subdirectory_names(@layout.tasks_root()) {
-          lint_task(issues, task)
-        }
-      }
+  lint_task(issues, task)
+  lint_dangling_registrations(issues, found => found == Some(task))
+  report_and_fix(issues, fix)
+}
+
+///|
+/// 全 task を検査して結果を表示し、`fix` なら自動修正する。
+/// どの task にも属さない、登録だけ残っているものも対象にする。
+/// 未解決の問題が無ければ 0、あれば 1 を返す。
+pub async fn run_workspace(fix : Bool) -> Int32 {
+  let issues : Array[Issue] = []
+  if @sys.exists(@layout.tasks_root()) {
+    for task in @sys.subdirectory_names(@layout.tasks_root()) {
+      lint_task(issues, task)
+    }
   }
-  lint_dangling_registrations(issues)
+  lint_dangling_registrations(issues, _ => true)
+  report_and_fix(issues, fix)
+}
+
+///|
+async fn report_and_fix(issues : Array[Issue], fix : Bool) -> Int32 {
   if issues.is_empty() {
     @sys.log("問題はありません")
     return 0

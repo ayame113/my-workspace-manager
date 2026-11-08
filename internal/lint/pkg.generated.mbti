@@ -2,7 +2,9 @@
 package "my-workspace-manager/ws/internal/lint"
 
 // Values
-pub async fn run(String?, Bool) -> Int32
+pub async fn run_task(String, Bool) -> Int32
+
+pub async fn run_workspace(Bool) -> Int32
 
 // Errors
 

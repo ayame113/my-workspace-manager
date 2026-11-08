@@ -114,7 +114,7 @@ async fn cmd_rename(
         $|  git push -u origin \{new}
         $|  git push origin --delete \{old}
         $|※ \{old} の PR がある場合は、代わりに GitHub の Branches 画面でリネームし、
-        $|  ws pull の後に git branch -u origin/\{new} を実行してください
+        $|  ws worktree pull の後に git branch -u origin/\{new} を実行してください
       ),
     )
   }

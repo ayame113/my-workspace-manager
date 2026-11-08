@@ -50,7 +50,7 @@ async fn cmd_clone(url : String, repo_option : String?) -> Int32 {
 fn missing_branch_error(branch : String) -> @errors.WsError {
   @errors.WsError(
     "ローカルに '\{branch}' も 'origin/\{branch}' もありません。" +
-    "リモートにあるはずなら、別ターミナルで ws pull --task <task> か git fetch が必要です。" +
+    "リモートにあるはずなら、別ターミナルで ws worktree pull --task <task> か git fetch が必要です。" +
     "新規ブランチなら --branch <branch> --create --base <start-point> を使ってください",
   )
 }
@@ -127,20 +127,56 @@ async fn print_worktrees(dir : String, kind : String) -> Unit {
 }
 
 ///|
-/// `task` が `None` なら全 task を表示する。
-async fn cmd_ls(task : String?) -> Int32 {
-  let print_task = async fn(task : String) {
-    print_worktrees(@layout.task_dir(task), "work")
-    print_worktrees("\{@layout.task_dir(task)}/_readonly", "ro")
+async fn cmd_worktree_ls(task : String) -> Int32 {
+  print_worktrees(@layout.task_dir(task), "work")
+  print_worktrees("\{@layout.task_dir(task)}/_readonly", "ro")
+  0
+}
+
+///|
+async fn count_dirty(dir : String) -> Int32 {
+  let mut dirty = 0
+  for name in @layout.list_worktree_names(dir) {
+    if @git.is_dirty("\{dir}/\{name}") {
+      dirty += 1
+    }
   }
-  match task {
-    Some(task) => print_task(task)
-    None if @sys.exists(@layout.tasks_root()) =>
-      for task in @sys.subdirectory_names(@layout.tasks_root()) {
-        @sys.log("[\{task}]")
-        print_task(task)
-      }
-    None => ()
+  dirty
+}
+
+///|
+async fn cmd_ls() -> Int32 {
+  if !@sys.exists(@layout.tasks_root()) {
+    return 0
+  }
+  let rows = []
+  for task in @sys.subdirectory_names(@layout.tasks_root()) {
+    let dir = @layout.task_dir(task)
+    let work = @layout.list_worktree_names(dir).length()
+    let read_only_count = @layout.list_worktree_names("\{dir}/_readonly").length()
+    let dirty = count_dirty(dir) + count_dirty("\{dir}/_readonly")
+    let readonly_note = if read_only_count == 0 {
+      ""
+    } else {
+      " (\{read_only_count} readonly)"
+    }
+    let dirty_note = if dirty == 0 { "clean" } else { "\{dirty} dirty" }
+    rows.push(
+      (task, "\{work + read_only_count} worktrees\{readonly_note}", dirty_note),
+    )
+  }
+  let task_width = rows
+    .iter()
+    .map(row => row.0.length())
+    .fold(init=0, Int32::max)
+  let count_width = rows
+    .iter()
+    .map(row => row.1.length())
+    .fold(init=0, Int32::max)
+  for row in rows {
+    @sys.log(
+      "\{row.0.pad_end(task_width + 3, ' ')}\{row.1.pad_end(count_width + 3, ' ')}\{row.2}",
+    )
   }
   0
 }

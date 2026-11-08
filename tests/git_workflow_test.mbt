@@ -5,11 +5,13 @@ async test "agent guard, clone and add" {
   let remote = "file://\{s.root}/remotes/myrepo.git"
   s.env["CLAUDECODE"] = "1"
   ignore(s.ws(["clone", remote]))
-  ignore(s.ws(["pull", "--task", "t-one"]))
+  ignore(s.ws(["worktree", "pull", "--task", "t-one"]))
   s.env.remove("CLAUDECODE")
   s.setup_ws(["new", "t-one"])
   ignore(
-    s.ws(["add", "--task", "t-one", "--repo", "myrepo", "--branch", "foo"]),
+    s.ws([
+      "worktree", "add", "--task", "t-one", "--repo", "myrepo", "--branch", "foo",
+    ]),
   )
   s.make_remote("myrepo", ["release/wave3.1", "a/b"])
   ignore(s.ws(["clone", "\{remote}/"]))
@@ -18,7 +20,7 @@ async test "agent guard, clone and add" {
   s.note("local branches: \{s.git(bare, ["for-each-ref", "refs/heads"])}")
 
   let add = (args : Array[String]) => {
-    s.ws(["add", "--task", "t-one", "--repo", "myrepo", ..args])
+    s.ws(["worktree", "add", "--task", "t-one", "--repo", "myrepo", ..args])
   }
   ignore(add(["--branch", "release/wave3.1"]))
   s.note(
@@ -30,7 +32,7 @@ async test "agent guard, clone and add" {
   ignore(add(["--branch", "localonly"]))
   ignore(add(["--branch", "nosuch"]))
   s.note(
-    "duplicate rc=\{s.exec(ws_binary.wait(), ["add", "--task", "t-one", "--repo", "myrepo", "--branch", "release/wave3.1"]).code}",
+    "duplicate rc=\{s.exec(ws_binary.wait(), ["worktree", "add", "--task", "t-one", "--repo", "myrepo", "--branch", "release/wave3.1"]).code}",
   )
   ignore(add(["--branch", "fresh", "-c", "--base", "review"]))
   ignore(add(["--branch", "fresh", "--create", "--base", "origin/review"]))
@@ -40,31 +42,37 @@ async test "agent guard, clone and add" {
   ignore(add(["--branch", "localonly", "-c", "--base", "origin/review"]))
   ignore(add(["--branch", "日本語", "-c", "--base", "origin/review"]))
   ignore(
-    s.ws(["add", "--task", "t-one", "--repo", "my--repo", "--branch", "x"]),
+    s.ws([
+      "worktree", "add", "--task", "t-one", "--repo", "my--repo", "--branch", "x",
+    ]),
   )
   ignore(add(["--readonly", "--branch", "release/wave3.1"]))
   ignore(add(["--readonly", "--branch", "nosuch"]))
   s.setup_ws(["new", "t-two"])
   ignore(
     s.ws([
-      "add", "--branch", "q1", "-c", "--base", "origin/review", "--repo", "myrepo",
-      "--task", "t-two",
+      "worktree", "add", "--branch", "q1", "-c", "--base", "origin/review", "--repo",
+      "myrepo", "--task", "t-two",
     ]),
   )
   ignore(
     s.ws([
-      "add", "--readonly", "--branch", "release/wave3.1", "--task", "t-two", "--repo",
-      "myrepo",
+      "worktree", "add", "--readonly", "--branch", "release/wave3.1", "--task", "t-two",
+      "--repo", "myrepo",
     ]),
   )
-  ignore(s.ws(["add", "--task", "t-opt", "--repo", "myrepo", "--branch", "x"]))
-  ignore(s.ws(["ls", "--all"]))
+  ignore(
+    s.ws([
+      "worktree", "add", "--task", "t-opt", "--repo", "myrepo", "--branch", "x",
+    ]),
+  )
+  ignore(s.ws(["ls"]))
   inspect(
     s.transcript.to_string(),
     content=(
       #|! ws: ws clone は ssh のパスフレーズ入力が必要なため、エージェントからは実行できません。ユーザーに別のターミナルで実行してもらってください
       #|rc=1
-      #|! ws: ws pull は ssh のパスフレーズ入力が必要なため、エージェントからは実行できません。ユーザーに別のターミナルで実行してもらってください
+      #|! ws: ws worktree pull は ssh のパスフレーズ入力が必要なため、エージェントからは実行できません。ユーザーに別のターミナルで実行してもらってください
       #|rc=1
       #|! ws: bare repo 'myrepo' がありません。別ターミナルで次を実行してください:
       #|rc=1
@@ -77,7 +85,7 @@ async test "agent guard, clone and add" {
       #|origin/release/wave3.1
       #|作成しました: $S/root/tasks/t-one/myrepo--localonly
       #|rc=0
-      #|! ws: ローカルに 'nosuch' も 'origin/nosuch' もありません。リモートにあるはずなら、別ターミナルで ws pull --task <task> か git fetch が必要です。新規ブランチなら --branch <branch> --create --base <start-point> を使ってください
+      #|! ws: ローカルに 'nosuch' も 'origin/nosuch' もありません。リモートにあるはずなら、別ターミナルで ws worktree pull --task <task> か git fetch が必要です。新規ブランチなら --branch <branch> --create --base <start-point> を使ってください
       #|rc=1
       #|duplicate rc=1
       #|! ws: --base 'review' を解決できません(origin/main のように明示してください)
@@ -93,7 +101,7 @@ async test "agent guard, clone and add" {
       #|rc=1
       #|作成しました: $S/root/tasks/t-one/_readonly/myrepo--release-wave3-1
       #|rc=0
-      #|! ws: ローカルに 'nosuch' も 'origin/nosuch' もありません。リモートにあるはずなら、別ターミナルで ws pull --task <task> か git fetch が必要です。新規ブランチなら --branch <branch> --create --base <start-point> を使ってください
+      #|! ws: ローカルに 'nosuch' も 'origin/nosuch' もありません。リモートにあるはずなら、別ターミナルで ws worktree pull --task <task> か git fetch が必要です。新規ブランチなら --branch <branch> --create --base <start-point> を使ってください
       #|rc=1
       #|作成しました: $S/root/tasks/t-two/myrepo--q1
       #|rc=0
@@ -101,14 +109,8 @@ async test "agent guard, clone and add" {
       #|rc=0
       #|! ws: task 't-opt' がありません。先に 'ws new t-opt' を実行してください
       #|rc=1
-      #|[t-one]
-      #|work   myrepo--fresh                                           fresh                                         clean
-      #|work   myrepo--localonly                                       localonly                                     clean
-      #|work   myrepo--release-wave3-1                                 release/wave3.1                               clean
-      #|ro     myrepo--release-wave3-1                                 detached@0b8354e                              clean
-      #|[t-two]
-      #|work   myrepo--q1                                              q1                                            clean
-      #|ro     myrepo--release-wave3-1                                 detached@0b8354e                              clean
+      #|t-one   4 worktrees (1 readonly)   clean
+      #|t-two   2 worktrees (1 readonly)   clean
       #|rc=0
       #|
     ),
@@ -124,7 +126,7 @@ async test "pull" {
   ])
   s.make_remote("other", [])
   s.setup_ws(["new", "t-pull"])
-  ignore(s.ws(["pull", "--task", "t-pull"]))
+  ignore(s.ws(["worktree", "pull", "--task", "t-pull"]))
   for
     args in [
       ["--repo", "myrepo", "--branch", "pull/ff"],
@@ -136,7 +138,7 @@ async test "pull" {
       ["--repo", "myrepo", "--readonly", "--branch", "release/wave3.1"],
       ["--repo", "other", "--readonly", "--branch", "review"],
     ] {
-    s.setup_ws(["add", "--task", "t-pull", ..args])
+    s.setup_ws(["worktree", "add", "--task", "t-pull", ..args])
   }
   let task_dir = "\{s.tasks}/t-pull"
   write("\{task_dir}/myrepo--pull-dirty/f", "dirty\n")
@@ -147,7 +149,7 @@ async test "pull" {
     s.push_change("myrepo", branch)
   }
   s.env["GIT_TRACE"] = "\{s.root}/trace.txt"
-  ignore(s.ws(["pull", "--task", "t-pull"]))
+  ignore(s.ws(["worktree", "pull", "--task", "t-pull"]))
   s.env.remove("GIT_TRACE")
   s.note(
     "fetches: \{@fs.read_text("\{s.root}/trace.txt").split("\n").filter(line => line.contains("built-in: git fetch ")).count()}",
@@ -155,11 +157,17 @@ async test "pull" {
   s.note(
     "merge commits: \{s.git("\{task_dir}/myrepo--pull-ff", ["log", "--oneline", "--merges"])}",
   )
-  ignore(s.ws(["pull"], cwd="\{task_dir}/_readonly/myrepo--release-wave3-1"))
+  ignore(
+    s.ws(
+      ["worktree", "pull"],
+      cwd="\{task_dir}/_readonly/myrepo--release-wave3-1",
+    ),
+  )
 
   s.setup_ws(["new", "t-multi"])
   s.setup_ws([
-    "add", "--task", "t-multi", "--repo", "myrepo", "--readonly", "--branch", "a/b",
+    "worktree", "add", "--task", "t-multi", "--repo", "myrepo", "--readonly", "--branch",
+    "a/b",
   ])
   ignore(s.git("\{s.root}/seed-myrepo", ["branch", "a-b", "review"]))
   ignore(
@@ -167,9 +175,9 @@ async test "pull" {
       "push", "-q", "../remotes/myrepo.git", "a-b",
     ]),
   )
-  ignore(s.ws(["pull", "--task", "t-multi"]))
+  ignore(s.ws(["worktree", "pull", "--task", "t-multi"]))
   @fs.rmdir("\{s.ws_root}/repos/other.git", recursive=true)
-  ignore(s.ws(["pull", "--task", "t-pull"]))
+  ignore(s.ws(["worktree", "pull", "--task", "t-pull"]))
   inspect(
     s.transcript.to_string(),
     content=(
@@ -220,26 +228,27 @@ async test "task resolution from the current directory" {
   s.make_remote("myrepo", [])
   s.setup_ws(["new", "t-one"])
   s.setup_ws([
-    "add", "--task", "t-one", "--repo", "myrepo", "--branch", "fresh", "-c", "--base",
-    "origin/review",
+    "worktree", "add", "--task", "t-one", "--repo", "myrepo", "--branch", "fresh",
+    "-c", "--base", "origin/review",
   ])
   let task_dir = "\{s.tasks}/t-one"
   @fs.mkdir("\{task_dir}/myrepo--fresh/sub")
-  ignore(s.ws(["ls"], cwd="\{task_dir}/myrepo--fresh/sub"))
+  ignore(s.ws(["worktree", "ls"], cwd="\{task_dir}/myrepo--fresh/sub"))
   ignore(
     s.ws(
       [
-        "add", "--repo", "myrepo", "--branch", "dotc", "-c", "--base", "origin/review",
+        "worktree", "add", "--repo", "myrepo", "--branch", "dotc", "-c", "--base",
+        "origin/review",
       ],
       cwd=task_dir,
     ),
   )
-  ignore(s.ws(["ls", "--task", "."], cwd=task_dir))
+  ignore(s.ws(["worktree", "ls", "--task", "."], cwd=task_dir))
   let outside = "\{s.root}/outside"
-  ignore(s.ws(["ls"], cwd=outside))
-  ignore(s.ws(["ls", "--task", "."], cwd=outside))
-  ignore(s.ws(["pull"], cwd=s.tasks))
-  ignore(s.ws(["ls", "--task", "nope"]))
+  ignore(s.ws(["worktree", "ls"], cwd=outside))
+  ignore(s.ws(["worktree", "ls", "--task", "."], cwd=outside))
+  ignore(s.ws(["worktree", "pull"], cwd=s.tasks))
+  ignore(s.ws(["worktree", "ls", "--task", "nope"]))
   ignore(s.ws(["new", "."]))
   ignore(s.ws(["new", "t-one"]))
   inspect(
@@ -252,7 +261,7 @@ async test "task resolution from the current directory" {
       #|work   myrepo--dotc                                            dotc                                          clean
       #|work   myrepo--fresh                                           fresh                                         clean
       #|rc=0
-      #|! ws: カレントディレクトリが $S/root/tasks/<task>/ 配下ではありません。--task <task> か --all を指定してください
+      #|! ws: カレントディレクトリが $S/root/tasks/<task>/ 配下ではありません。--task <task> を指定してください
       #|rc=1
       #|! ws: カレントディレクトリが $S/root/tasks/<task>/ 配下ではありません
       #|rc=1
@@ -282,17 +291,26 @@ async test "usage errors exit with 2" {
       ["new", "a", "b"],
       ["clone"],
       ["compact", "--task", "t"],
-      ["add", "--repo", "r", "--bogus", "--branch", "b"],
-      ["add", "--branch", "x"],
-      ["add", "--repo", "r", "--branch", "x", "extra"],
-      ["add", "--repo", "r", "--branch", "x", "--base", "origin/review"],
-      ["add", "--repo", "r", "--branch", "x", "-c"],
-      ["add", "--repo", "r", "--branch", "x", "--readonly", "-c", "--base", "o"],
-      ["add", "--repo", "r", "--branch", "-x"],
-      ["rename", "--repo", "r", "--branch", "a"],
-      ["ls", "--all", "--task", "t"],
-      ["lint", "--all", "--task", "t"],
-      ["lint", "--task", "--bogus"],
+      ["worktree", "add", "--repo", "r", "--bogus", "--branch", "b"],
+      ["worktree", "add", "--branch", "x"],
+      ["worktree", "add", "--repo", "r", "--branch", "x", "extra"],
+      [
+        "worktree", "add", "--repo", "r", "--branch", "x", "--base", "origin/review",
+      ],
+      ["worktree", "add", "--repo", "r", "--branch", "x", "-c"],
+      [
+        "worktree", "add", "--repo", "r", "--branch", "x", "--readonly", "-c", "--base",
+        "o",
+      ],
+      ["worktree", "add", "--repo", "r", "--branch", "-x"],
+      ["worktree", "rename", "--repo", "r", "--branch", "a"],
+      ["ls", "--all"],
+      ["lint", "--task", "t"],
+      ["worktree"],
+      ["worktree", "bogus"],
+      ["add", "--repo", "r", "--branch", "b"],
+      ["worktree", "ls", "--all"],
+      ["worktree", "lint", "--task", "--bogus"],
     ] {
     codes.push(s.exec(ws_binary.wait(), args).code.to_string())
   }
@@ -301,7 +319,7 @@ async test "usage errors exit with 2" {
   inspect(
     s.transcript.to_string(),
     content=(
-      #|2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2
+      #|2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2
       #|help rc=0
       #|
     ),
@@ -314,7 +332,7 @@ async fn Sandbox::rename(
   args : Array[String],
   cwd? : String,
 ) -> Outcome {
-  self.ws(["rename", "--repo", "myrepo", ..args], cwd?)
+  self.ws(["worktree", "rename", "--repo", "myrepo", ..args], cwd?)
 }
 
 ///|
@@ -326,7 +344,9 @@ async test "rename" {
   let task_dir = "\{s.tasks}/t-ren"
   let bare = "\{s.ws_root}/repos/myrepo.git"
   let add = (args : Array[String]) => {
-    s.setup_ws(["add", "--task", "t-ren", "--repo", "myrepo", ..args])
+    s.setup_ws(
+      ["worktree", "add", "--task", "t-ren", "--repo", "myrepo", ..args],
+    )
   }
   add(["--branch", "plain", "-c", "--base", "origin/review"])
   add(["--branch", "feat/x", "-c", "--base", "origin/review"])
@@ -339,8 +359,8 @@ async test "rename" {
   ignore(
     s.rename(["--task", "t-ren", "--branch", "plain", "--to", "renamed/plain"]),
   )
-  ignore(s.ws(["ls", "--task", "t-ren"]))
-  ignore(s.ws(["lint", "--task", "t-ren"]))
+  ignore(s.ws(["worktree", "ls", "--task", "t-ren"]))
+  ignore(s.ws(["worktree", "lint", "--task", "t-ren"]))
   s.note(
     "branches: \{s.git(bare, ["branch", "--format=%(refname:short)"]).replace_all(old="\n", new=" ")}",
   )
@@ -349,7 +369,7 @@ async test "rename" {
   s.note(
     "slug unchanged: \{@fs.exists("\{task_dir}/myrepo--feat-x")} \{s.git("\{task_dir}/myrepo--feat-x", ["branch", "--show-current"])}",
   )
-  ignore(s.ws(["lint", "--task", "t-ren"]))
+  ignore(s.ws(["worktree", "lint", "--task", "t-ren"]))
 
   ignore(
     s.rename([
@@ -375,8 +395,8 @@ async test "rename" {
   ignore(s.rename(["--task", "t-ren", "--branch", "other", "--to", "other2"]))
   ignore(
     s.ws([
-      "rename", "--task", "t-ren", "--repo", "nosuch", "--branch", "stay", "--to",
-      "z",
+      "worktree", "rename", "--task", "t-ren", "--repo", "nosuch", "--branch", "stay",
+      "--to", "z",
     ]),
   )
   s.note(
@@ -390,7 +410,7 @@ async test "rename" {
     ),
   )
   s.note("inside kept: \{@fs.exists("\{task_dir}/myrepo--inside")}")
-  ignore(s.ws(["ls", "--task", "t-ren"]))
+  ignore(s.ws(["worktree", "ls", "--task", "t-ren"]))
   inspect(
     s.transcript.to_string(),
     content=(
@@ -420,7 +440,7 @@ async test "rename" {
       #|  git push -u origin tracked/new
       #|  git push origin --delete tracked/old
       #|※ tracked/old の PR がある場合は、代わりに GitHub の Branches 画面でリネームし、
-      #|  ws pull の後に git branch -u origin/tracked/new を実行してください
+      #|  ws worktree pull の後に git branch -u origin/tracked/new を実行してください
       #|rc=0
       #|upstream rc=128
       #|remote branch kept: true
@@ -442,7 +462,7 @@ async test "rename" {
       #|  git push -u origin other2
       #|  git push origin --delete other
       #|※ other の PR がある場合は、代わりに GitHub の Branches 画面でリネームし、
-      #|  ws pull の後に git branch -u origin/other2 を実行してください
+      #|  ws worktree pull の後に git branch -u origin/other2 を実行してください
       #|rc=0
       #|! ws: bare repo 'nosuch' がありません。別ターミナルで次を実行してください:
       #|rc=1
@@ -458,6 +478,43 @@ async test "rename" {
       #|work   myrepo--taken                                           taken                                         clean
       #|work   myrepo--tracked-new                                     tracked/new                                   clean
       #|ro     myrepo--other                                           detached@0b8354e                              clean
+      #|rc=0
+      #|
+    ),
+  )
+}
+
+///|
+async test "ls lists one line per task" {
+  let s = Sandbox::new()
+  defer s.cleanup()
+  ignore(s.ws(["ls"]))
+  s.make_remote("myrepo", ["b1", "b2", "b3", "b4", "b5"])
+  s.setup_ws(["new", "some-task"])
+  s.setup_ws(["new", "my-workspace-manager"])
+  s.setup_ws(["new", "empty"])
+  for branch in ["b1", "b2", "b3"] {
+    s.setup_ws([
+      "worktree", "add", "--task", "some-task", "--repo", "myrepo", "--branch", branch,
+    ])
+  }
+  s.setup_ws([
+    "worktree", "add", "--task", "my-workspace-manager", "--repo", "myrepo", "--branch",
+    "b4",
+  ])
+  s.setup_ws([
+    "worktree", "add", "--task", "my-workspace-manager", "--repo", "myrepo", "--readonly",
+    "--branch", "b5",
+  ])
+  write("\{s.tasks}/my-workspace-manager/myrepo--b4/f", "dirty\n")
+  ignore(s.ws(["ls"]))
+  inspect(
+    s.transcript.to_string(),
+    content=(
+      #|rc=0
+      #|empty                  0 worktrees                clean
+      #|my-workspace-manager   2 worktrees (1 readonly)   1 dirty
+      #|some-task              3 worktrees                clean
       #|rc=0
       #|
     ),

@@ -83,7 +83,7 @@ fn failure(error : Error) -> Outcome raise {
 
 ///|
 async fn cmd_pull(task_option : String?) -> Int32 {
-  @layout.refuse_inside_agent("ws pull")
+  @layout.refuse_inside_agent("ws worktree pull")
   let task = @layout.resolve_existing_task(
     task_option, "--task <task> を指定してください",
   )
