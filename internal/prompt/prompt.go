@@ -79,7 +79,7 @@ type addMode string
 const (
 	modeExisting addMode = "既存ブランチ"
 	modeNew      addMode = "新規ブランチ"
-	modeReadonly addMode = "readonly(origin のブランチを参照用に)"
+	modeReadonly addMode = "readonly(main など、複数の task から参照するブランチ)"
 )
 
 func (p *Prompter) chooseMode(ctx context.Context) (addMode, error) {

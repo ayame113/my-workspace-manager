@@ -243,7 +243,7 @@ func (r *runner) worktreeAddCommand() *cobra.Command {
 	cmd.Flags().StringVar(&opts.Branch, "branch", "", "ブランチ名")
 	cmd.Flags().StringVar(&opts.Base, "base", "", "--create の起点(origin/main など)")
 	cmd.Flags().BoolVarP(&opts.Create, "create", "c", false, "新規ブランチを作る")
-	cmd.Flags().BoolVar(&opts.ReadOnly, "readonly", false, "origin/<branch> を detached で _readonly/ に作る")
+	cmd.Flags().BoolVar(&opts.ReadOnly, "readonly", false, "origin/<branch> を detached で _readonly/ に作る(main など、複数の task から参照するブランチ用)")
 	_ = cmd.RegisterFlagCompletionFunc("repo", r.completeRepos)
 	_ = cmd.RegisterFlagCompletionFunc("branch", r.completeAddBranch(&opts))
 	_ = cmd.RegisterFlagCompletionFunc("base", r.completeBase(&opts))

@@ -91,6 +91,14 @@ ws worktree pull                           # 【ユーザーが実行】fetch �
   - 作業用: upstream があれば `git merge --ff-only`。マージコミットや rebase は作らない。
   - 未コミット変更あり、upstream なし、upstream と分岐、はスキップして理由を表示する。一致するブランチが0件 / 複数件の readonly と、その他の失敗は error として表示され、終了コードは 1 になる。
 
+## 作業用と readonly の使い分け
+
+- ブランチを開くときは、原則として作業用 worktree(`ws worktree add --repo <repo> --branch <branch>`)にする。中身を読むだけのつもりでも作業用でよい。後から編集したくなっても作り直さずに済む。
+- readonly(`--readonly`)にするのは、複数の task から同時に参照されるのが普通のブランチだけ:
+  - repo の既定ブランチ(main / master / develop など。`origin/HEAD` が指すもの)
+  - リリースブランチなど、長く残って誰も直接コミットしないブランチ
+- 迷ったら作業用にする。ユーザーが「参照用に」と言っても、上の条件に当たらなければ作業用で作り、そうしたことを伝える。
+
 ## task の説明(ws describe)
 
 task の説明は `tasks/<task>/.ws-task.json` に保存され、`ws ls` に表示され、`ws ls <語>` で検索できる。ファイルは直接編集せず、必ず ws のコマンドで読み書きする。
@@ -123,7 +131,7 @@ task の説明は `tasks/<task>/.ws-task.json` に保存され、`ws ls` に表�
 
 ## 注意点
 
-- 同一ブランチを checkout できる作業用 worktree は、全タスクを通じて1つだけ。二重に `ws worktree add` すると git のエラーで失敗する。別タスクで参照したいだけなら `--readonly` を使う。
+- 同一ブランチを checkout できる作業用 worktree は、全タスクを通じて1つだけ。二重に `ws worktree add` すると git のエラーで失敗する。readonly にするかどうかは「作業用と readonly の使い分け」に従う。
 - readonly で作業を始めたくなったら、readonly には手を加えず `ws worktree add` で作業用 worktree を作る。
 - fork 由来のブランチ(`origin/<branch>` が無いもの)は `--readonly` できない。
 - bare repo には `branch.autoSetupMerge=simple` を自動設定する(`ws worktree add` / `ws worktree pull` のたびに適用)。手で `git switch -c x origin/main` と切ったブランチの upstream が base になり、エディタの push で base に push されるのを防ぐため。この場合 upstream は付かず、`git push` はエラーで止まる。push はユーザーに依頼し、新規ブランチなら `git push -u origin <branch>` を案内する。
