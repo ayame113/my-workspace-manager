@@ -1,0 +1,37 @@
+mkremote myrepo
+exec ws clone file://$WORK/remotes/myrepo.git
+exec ws new t-one
+exec ws worktree add --task t-one --repo myrepo --branch fresh -c --base origin/review
+mkdir $WS_ROOT/tasks/t-one/myrepo--fresh/sub
+
+# task 配下のどこからでも --task を省略できる
+cd $WS_ROOT/tasks/t-one/myrepo--fresh/sub
+exec ws worktree ls
+cmp stdout $WORK/want-ls-fresh.txt
+
+cd $WS_ROOT/tasks/t-one
+exec ws worktree add --repo myrepo --branch dotc -c --base origin/review
+exec ws worktree ls --task .
+cmp stdout $WORK/want-ls-both.txt
+
+# task の外では --task が必要。. は task の外だとエラー
+cd $WORK/outside
+! exec ws worktree ls
+stderr 'ws: カレントディレクトリが .*/root/tasks/<task>/ 配下ではありません。--task <task> を指定してください'
+! exec ws worktree ls --task .
+stderr 'ws: カレントディレクトリが .*/root/tasks/<task>/ 配下ではありません$'
+cd $WS_ROOT/tasks
+! exec ws worktree pull
+stderr '--task <task> を指定してください'
+! exec ws worktree ls --task nope
+stderr 'task ''nope'' がありません。先に ''ws new nope'' を実行してください'
+! exec ws new .
+stderr 'task 名は \[a-z0-9-\] のみ'
+exec ws new t-one
+stdout 'task ''t-one'' は既に存在します'
+
+-- want-ls-fresh.txt --
+work   myrepo--fresh                                           fresh                                         clean
+-- want-ls-both.txt --
+work   myrepo--dotc                                            dotc                                          clean
+work   myrepo--fresh                                           fresh                                         clean

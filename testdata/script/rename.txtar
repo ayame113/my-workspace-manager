@@ -1,0 +1,106 @@
+mkremote myrepo tracked/old other
+exec ws clone file://$WORK/remotes/myrepo.git
+exec ws new t-ren
+env TASK=$WS_ROOT/tasks/t-ren
+env BARE=$WS_ROOT/repos/myrepo.git
+exec ws worktree add --task t-ren --repo myrepo --branch plain -c --base origin/review
+exec ws worktree add --task t-ren --repo myrepo --branch feat/x -c --base origin/review
+exec ws worktree add --task t-ren --repo myrepo --branch tracked/old
+exec ws worktree add --task t-ren --repo myrepo --branch other
+exec ws worktree add --task t-ren --repo myrepo --branch taken -c --base origin/review
+exec ws worktree add --task t-ren --repo myrepo --branch stay -c --base origin/review
+exec ws worktree add --task t-ren --repo myrepo --branch inside -c --base origin/review
+exec ws worktree add --task t-ren --repo myrepo --readonly --branch other
+
+# slug が変わればディレクトリも移動する
+exec ws worktree rename --task t-ren --repo myrepo --branch plain --to renamed/plain
+cmpenv stdout $WORK/want-rename-plain.txt
+exec ws worktree lint --task t-ren
+stdout '問題はありません'
+exec git -C $BARE branch --format=%(refname:short)
+cmp stdout $WORK/want-branches.txt
+
+# slug が同じならディレクトリはそのまま(task はカレントディレクトリから)
+cd $TASK
+exec ws worktree rename --repo myrepo --branch feat/x --to feat--x
+! stdout '新しいパス'
+exists $TASK/myrepo--feat-x
+exec git -C $TASK/myrepo--feat-x branch --show-current
+stdout '^feat--x$'
+exec ws worktree lint
+stdout '問題はありません'
+cd $WORK
+
+# upstream があれば外し、リモートへの反映手順を表示する(リモートは変更しない)
+exec ws worktree rename --task t-ren --repo myrepo --branch tracked/old --to tracked/new
+cmpenv stdout $WORK/want-rename-tracked.txt
+! exec git -C $TASK/myrepo--tracked-new rev-parse @{u}
+exec git -C $BARE show-ref --verify --quiet refs/remotes/origin/tracked/old
+
+# 失敗する場合
+! exec ws worktree rename --task t-ren --repo myrepo --branch plain --to x
+stderr '作業用 worktree .*myrepo--plain が無いか、ブランチ ''plain'' を checkout していません'
+! exec ws worktree rename --task t-ren --repo myrepo --branch taken --to other
+stderr 'ローカルブランチ ''other'' は既に存在します'
+mkdir $TASK/myrepo--occupied
+! exec ws worktree rename --task t-ren --repo myrepo --branch taken --to occupied
+stderr '移動先 .*myrepo--occupied は既に存在します'
+! exec ws worktree rename --task t-ren --repo myrepo --branch taken --to bad..name
+stderr 'ブランチ名 ''bad..name'' は git で使えません'
+! exec ws worktree rename --task t-ren --repo myrepo --branch taken --to @{-1}
+stderr 'ブランチ名 ''@\{-1\}'' は git で使えません'
+! exec ws worktree rename --task t-ren --repo myrepo --branch stay --to stay
+stderr 'ローカルブランチ ''stay'' は既に存在します'
+! exec ws worktree rename --task t-ren --repo nosuch --branch stay --to z
+stderr 'bare repo ''nosuch'' がありません'
+exists $TASK/myrepo--taken
+exec git -C $TASK/myrepo--taken branch --show-current
+stdout '^taken$'
+
+# worktree move が失敗したら、ブランチ名を元に戻す
+exec ws worktree add --task t-ren --repo myrepo --branch locked -c --base origin/review
+exec git -C $BARE worktree lock $TASK/myrepo--locked
+! exec ws worktree rename --task t-ren --repo myrepo --branch locked --to moved
+stderr 'locked'
+exists $TASK/myrepo--locked
+! exists $TASK/myrepo--moved
+exec git -C $TASK/myrepo--locked branch --show-current
+stdout '^locked$'
+exec git -C $BARE show-ref --verify --quiet refs/heads/locked
+! exec git -C $BARE show-ref --verify --quiet refs/heads/moved
+exec git -C $BARE worktree unlock $TASK/myrepo--locked
+
+# 対象 worktree の中からは移動できない。何も変わらない
+cd $TASK/myrepo--inside
+! exec ws worktree rename --repo myrepo --branch inside --to outside
+stderr 'カレントディレクトリが .*myrepo--inside 配下のため、worktree を移動できません'
+exists $TASK/myrepo--inside
+exec git branch --show-current
+stdout '^inside$'
+cd $WORK
+
+# readonly と同じブランチ名の作業用 worktree は rename できる
+exec ws worktree rename --task t-ren --repo myrepo --branch other --to other2
+stdout '新しいパス: .*myrepo--other2'
+exec ws worktree ls --task t-ren
+stdout 'ro     myrepo--other  '
+
+-- want-rename-plain.txt --
+リネームしました: plain → renamed/plain
+新しいパス: $TASK/myrepo--renamed-plain
+-- want-branches.txt --
+feat/x
+inside
+other
+renamed/plain
+stay
+taken
+tracked/old
+-- want-rename-tracked.txt --
+リネームしました: tracked/old → tracked/new
+新しいパス: $TASK/myrepo--tracked-new
+origin/tracked/old は残っています。リモートに反映するには(別ターミナルで):
+  git push -u origin tracked/new
+  git push origin --delete tracked/old
+※ tracked/old の PR がある場合は、代わりに GitHub の Branches 画面でリネームし、
+  ws worktree pull の後に git branch -u origin/tracked/new を実行してください

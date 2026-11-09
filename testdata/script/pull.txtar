@@ -1,0 +1,87 @@
+mkremote myrepo feature/ABC-1 pull/ff pull/dirty pull/div release/wave3.1 a/b
+mkremote other
+exec ws clone file://$WORK/remotes/myrepo.git
+exec ws clone file://$WORK/remotes/other.git
+exec ws new t-pull
+
+# worktree が無ければ、その旨を表示するだけ
+exec ws worktree pull --task t-pull
+stdout 'worktree はありません'
+
+exec ws worktree add --task t-pull --repo myrepo --branch pull/ff
+exec ws worktree add --task t-pull --repo myrepo --branch feature/ABC-1
+exec ws worktree add --task t-pull --repo myrepo --branch pull/dirty
+exec ws worktree add --task t-pull --repo myrepo --branch pull/div
+exec ws worktree add --task t-pull --repo myrepo --branch noup -c --base origin/review
+exec ws worktree add --task t-pull --repo other --branch o1 -c --base origin/review
+exec ws worktree add --task t-pull --repo myrepo --readonly --branch release/wave3.1
+exec ws worktree add --task t-pull --repo other --readonly --branch review
+
+exec sh -c 'echo dirty > $WS_ROOT/tasks/t-pull/myrepo--pull-dirty/f'
+exec sh -c 'echo local > $WS_ROOT/tasks/t-pull/myrepo--pull-div/f'
+exec git -C $WS_ROOT/tasks/t-pull/myrepo--pull-div commit -qam local
+pushchange myrepo pull/ff
+pushchange myrepo pull/dirty
+pushchange myrepo pull/div
+pushchange myrepo review
+pushchange myrepo release/wave3.1
+
+# repo ごとに fetch は 1 回だけ。マージコミットは作らない
+env GIT_TRACE=$WORK/trace.txt
+exec ws worktree pull --task t-pull
+env GIT_TRACE=
+cmp stdout want-pull.txt
+grep -count=2 'built-in: git fetch ' $WORK/trace.txt
+exec git -C $WS_ROOT/tasks/t-pull/myrepo--pull-ff log --oneline --merges
+! stdout .
+
+# 2 回目は変更なし。task はカレントディレクトリから決まる
+cd $WS_ROOT/tasks/t-pull/_readonly/myrepo--release-wave3-1
+exec ws worktree pull
+cmp stdout $WORK/want-pull-again.txt
+cd $WORK
+
+# slug が複数の origin ブランチに一致する readonly は error
+exec ws new t-multi
+exec ws worktree add --task t-multi --repo myrepo --readonly --branch a/b
+exec git -C seed-myrepo branch a-b review
+exec git -C seed-myrepo push -q $WORK/remotes/myrepo.git a-b
+! exec ws worktree pull --task t-multi
+cmp stdout want-multi.txt
+
+# fetch できない repo の worktree は error。他は処理を続ける
+rm $WS_ROOT/repos/other.git
+! exec ws worktree pull --task t-pull
+cmpenv stdout want-fetch-fail.txt
+
+-- want-pull.txt --
+work  myrepo--feature-abc-1                                   up-to-date feature/ABC-1
+work  myrepo--noup                                            skipped    upstream なし
+work  myrepo--pull-dirty                                      skipped    未コミット変更あり
+work  myrepo--pull-div                                        skipped    pull/div: fatal: Not possible to fast-forward, aborting.
+work  myrepo--pull-ff                                         updated    pull/ff (be6549a)
+work  other--o1                                               skipped    upstream なし
+ro    myrepo--release-wave3-1                                 updated    origin/release/wave3.1 (b891f07)
+ro    other--review                                           up-to-date origin/review
+-- want-pull-again.txt --
+work  myrepo--feature-abc-1                                   up-to-date feature/ABC-1
+work  myrepo--noup                                            skipped    upstream なし
+work  myrepo--pull-dirty                                      skipped    未コミット変更あり
+work  myrepo--pull-div                                        skipped    pull/div: fatal: Not possible to fast-forward, aborting.
+work  myrepo--pull-ff                                         up-to-date pull/ff
+work  other--o1                                               skipped    upstream なし
+ro    myrepo--release-wave3-1                                 up-to-date origin/release/wave3.1
+ro    other--review                                           up-to-date origin/review
+-- want-multi.txt --
+ro    myrepo--a-b                                             error      slug に一致する origin ブランチが 2 件: a-b a/b
+-- want-fetch-fail.txt --
+work  myrepo--feature-abc-1                                   up-to-date feature/ABC-1
+work  myrepo--noup                                            skipped    upstream なし
+work  myrepo--pull-dirty                                      skipped    未コミット変更あり
+work  myrepo--pull-div                                        skipped    pull/div: fatal: Not possible to fast-forward, aborting.
+work  myrepo--pull-ff                                         up-to-date pull/ff
+work  other--o1                                               error      bare repo 'other' がありません。別ターミナルで次を実行してください:
+  ws clone <url> other
+ro    myrepo--release-wave3-1                                 up-to-date origin/release/wave3.1
+ro    other--review                                           error      bare repo 'other' がありません。別ターミナルで次を実行してください:
+  ws clone <url> other

@@ -1,0 +1,71 @@
+exec ws new t-one
+! exec ws worktree add --task t-one --repo myrepo --branch foo
+stderr 'bare repo ''myrepo'' がありません'
+stderr 'ws clone <url> myrepo'
+
+mkremote myrepo release/wave3.1 a/b
+exec ws clone file://$WORK/remotes/myrepo.git/
+cmpenv stdout want-clone.txt
+! exec ws clone file://$WORK/remotes/myrepo.git
+stderr 'myrepo.git は既に存在します'
+exec git -C $WS_ROOT/repos/myrepo.git config branch.autoSetupMerge
+stdout '^simple$'
+exec git -C $WS_ROOT/repos/myrepo.git for-each-ref refs/heads
+! stdout .
+
+# origin だけにあるブランチは upstream 付きで作られる
+exec ws worktree add --task t-one --repo myrepo --branch release/wave3.1
+cmpenv stdout want-add-remote.txt
+exec git -C $WS_ROOT/tasks/t-one/myrepo--release-wave3-1 rev-parse --abbrev-ref @{u}
+stdout '^origin/release/wave3.1$'
+
+# ローカルにあるブランチはそのまま使う
+exec git -C $WS_ROOT/repos/myrepo.git branch localonly origin/review
+exec ws worktree add --task t-one --repo myrepo --branch localonly
+stdout 'myrepo--localonly'
+
+wsrc 1 worktree add --task t-one --repo myrepo --branch nosuch
+! exec ws worktree add --task t-one --repo myrepo --branch nosuch
+stderr 'ローカルに ''nosuch'' も ''origin/nosuch'' もありません'
+stderr 'ws worktree pull --task <task>'
+stderr '--create --base <start-point>'
+! exec ws worktree add --task t-one --repo myrepo --branch release/wave3.1
+
+# --create
+! exec ws worktree add --task t-one --repo myrepo --branch fresh -c --base review
+stderr '--base ''review'' を解決できません'
+exec ws worktree add --task t-one --repo myrepo --branch fresh --create --base origin/review
+stdout 'myrepo--fresh'
+! exec git -C $WS_ROOT/tasks/t-one/myrepo--fresh rev-parse @{u}
+! exec ws worktree add --task t-one --repo myrepo --branch localonly -c --base origin/review
+stderr 'ローカルブランチ ''localonly'' は既に存在します'
+
+# 命名規則
+! exec ws worktree add --task t-one --repo myrepo --branch 日本語 -c --base origin/review
+stderr 'ブランチ名 ''日本語'' から slug を作れません'
+! exec ws worktree add --task t-one --repo my--repo --branch x
+stderr 'repo 名が不正です'
+
+# readonly
+exec ws worktree add --task t-one --repo myrepo --readonly --branch release/wave3.1
+stdout '_readonly/myrepo--release-wave3-1'
+! exec ws worktree add --task t-one --repo myrepo --readonly --branch nosuch
+stderr 'ローカルに ''nosuch'' も ''origin/nosuch'' もありません'
+
+# 引数の順序は自由、task が違えば同じブランチを readonly にできる
+exec ws new t-two
+exec ws worktree add --branch q1 -c --base origin/review --repo myrepo --task t-two
+exec ws worktree add --readonly --branch release/wave3.1 --task t-two --repo myrepo
+! exec ws worktree add --task t-opt --repo myrepo --branch x
+stderr 'task ''t-opt'' がありません。先に ''ws new t-opt'' を実行してください'
+
+exec ws ls
+cmp stdout want-ls.txt
+
+-- want-clone.txt --
+作成しました: $WS_ROOT/repos/myrepo.git
+-- want-add-remote.txt --
+作成しました: $WS_ROOT/tasks/t-one/myrepo--release-wave3-1
+-- want-ls.txt --
+t-two   2 worktrees (1 readonly)   clean
+t-one   4 worktrees (1 readonly)   clean

@@ -1,0 +1,54 @@
+mkremote myrepo a1 b1 c1
+exec ws clone file://$WORK/remotes/myrepo.git
+env T=$WS_ROOT/tasks
+exec ws new ta
+exec ws new tb
+exec ws worktree add --task ta --repo myrepo --branch a1
+exec ws worktree add --task tb --repo myrepo --branch b1
+exec git -C $WS_ROOT/repos/myrepo.git worktree add --detach $WORK/outside/p/stray origin/c1
+rm $T/ta/myrepo--a1
+rm $T/tb/myrepo--b1
+rm $WORK/outside/p/stray
+
+# worktree lint は指定した task の分だけ、ws lint は task に属さないものも含めて全体
+! exec ws worktree lint --task ta
+cmpenv stdout $WORK/want-ta.txt
+! exec ws worktree lint --task tb
+cmpenv stdout $WORK/want-tb.txt
+! exec ws lint
+cmpenv stdout $WORK/want-all.txt
+exec git -C $WS_ROOT/repos/myrepo.git worktree prune
+exec ws lint
+cmp stdout $WORK/want-clean.txt
+
+-- want-ta.txt --
+[ta] myrepo--a1
+  種類: broken-worktree
+  内容: git に登録されていますがディレクトリがありません: $WS_ROOT/tasks/ta/myrepo--a1
+  fix: git -C $WS_ROOT/repos/myrepo.git worktree prune
+
+1 件の問題
+-- want-tb.txt --
+[tb] myrepo--b1
+  種類: broken-worktree
+  内容: git に登録されていますがディレクトリがありません: $WS_ROOT/tasks/tb/myrepo--b1
+  fix: git -C $WS_ROOT/repos/myrepo.git worktree prune
+
+1 件の問題
+-- want-all.txt --
+[-] stray
+  種類: broken-worktree
+  内容: git に登録されていますがディレクトリがありません: $WORK/outside/p/stray
+  fix: git -C $WS_ROOT/repos/myrepo.git worktree prune
+[ta] myrepo--a1
+  種類: broken-worktree
+  内容: git に登録されていますがディレクトリがありません: $WS_ROOT/tasks/ta/myrepo--a1
+  fix: git -C $WS_ROOT/repos/myrepo.git worktree prune
+[tb] myrepo--b1
+  種類: broken-worktree
+  内容: git に登録されていますがディレクトリがありません: $WS_ROOT/tasks/tb/myrepo--b1
+  fix: git -C $WS_ROOT/repos/myrepo.git worktree prune
+
+3 件の問題
+-- want-clean.txt --
+問題はありません

@@ -1,0 +1,135 @@
+mkremote myrepo b1 c1 c2 c3 d1
+mkremote other d2
+exec ws clone file://$WORK/remotes/myrepo.git
+exec ws clone file://$WORK/remotes/other.git
+env T=$WS_ROOT/tasks
+
+# t2: ブランチ不一致・detached・別名の upstream
+exec ws new t2
+exec ws worktree add --task t2 --repo myrepo --branch c1
+exec ws worktree add --task t2 --repo myrepo --branch c2
+exec ws worktree add --task t2 --repo myrepo --branch c3
+exec git -C $T/t2/myrepo--c1 switch -q -c other
+exec git -C $T/t2/myrepo--c2 switch -q --detach
+exec git -C $T/t2/myrepo--c3 branch -q --set-upstream-to=origin/c1
+! exec ws worktree lint --task t2
+cmpenv stdout $WORK/want-t2.txt
+exec git -C $T/t2/myrepo--c3 rev-parse @{u}
+exec git -C $T/t2/myrepo--c3 branch --unset-upstream
+! exec git -C $T/t2/myrepo--c3 rev-parse @{u}
+
+# t3: readonly の破綻
+exec ws new t3
+exec ws worktree add --task t3 --repo myrepo --readonly --branch b1
+exec git -C $T/t3/_readonly/myrepo--b1 switch -q -c tmpb
+exec sh -c 'echo changed > $T/t3/_readonly/myrepo--b1/f'
+exec git -C $T/t3/_readonly/myrepo--b1 commit -qam c
+exec sh -c 'echo dirty > $T/t3/_readonly/myrepo--b1/f'
+! exec ws worktree lint --task t3
+cmp stdout $WORK/want-t3.txt
+
+# t4: 命名規則違反・壊れた worktree・登録だけ残っているもの
+exec ws new t4
+exec ws worktree add --task t4 --repo myrepo --branch d1
+exec ws worktree add --task t4 --repo other --branch d2
+rm $T/t4/myrepo--d1
+mkdir $T/t4/myrepo--ghost
+mkdir $T/t4/random-dir
+mkdir $T/t4/_readonly/zzz
+mkdir $T/Bad_Task
+mv $T/t4/other--d2 $T/t4/myrepo--d9
+! exec ws worktree lint --task t4
+cmpenv stdout $WORK/want-t4.txt
+exec git -C $WS_ROOT/repos/myrepo.git worktree prune
+exec git -C $WS_ROOT/repos/other.git worktree prune
+! exec ws worktree lint --task Bad_Task
+stderr 'ws: task 名は \[a-z0-9-\] のみ\(先頭末尾・連続ハイフン不可\): ''Bad_Task'''
+rm $T/t4
+rm $T/Bad_Task
+! exec ws lint
+cmpenv stdout $WORK/want-workspace.txt
+
+-- want-t2.txt --
+[t2] myrepo--c1
+  種類: dir-branch-mismatch
+  内容: 現在のブランチ 'other' の slug が名前と異なります
+  fix: 手動対応: ブランチを戻すか worktree を作り直す
+[t2] myrepo--c2
+  種類: dir-branch-mismatch
+  内容: detached HEAD です(作業用 worktree はブランチ固定)
+  fix: 手動対応: ブランチを checkout する
+[t2] myrepo--c3
+  種類: upstream-mismatch
+  内容: upstream が別名ブランチ 'origin/c1' を指しています
+  fix: git -C $T/t2/myrepo--c3 branch --unset-upstream
+
+3 件の問題
+-- want-t3.txt --
+[t3] _readonly/myrepo--b1
+  種類: readonly
+  内容: ブランチ 'tmpb' を checkout しています
+  fix: 手動対応: detached に戻す(git switch --detach)
+[t3] _readonly/myrepo--b1
+  種類: readonly
+  内容: origin に無いコミットが 1 件あります
+  fix: 手動対応: 内容を確認する
+[t3] _readonly/myrepo--b1
+  種類: readonly
+  内容: 未コミット変更があります
+  fix: 手動対応: 内容を確認する
+
+3 件の問題
+-- want-t4.txt --
+[t4] _readonly/zzz
+  種類: naming
+  内容: `<repo>--<slug>` 形式のディレクトリ名ではありません
+  fix: 手動対応: 名前を確認し、不要なら削除
+[t4] myrepo--d9
+  種類: naming
+  内容: repo 部分 'myrepo' と実際の bare repo($WS_ROOT/repos/other.git)が一致しません
+  fix: 手動対応: ディレクトリ名を実際の repo に合わせる
+[t4] myrepo--d9
+  種類: dir-branch-mismatch
+  内容: 現在のブランチ 'd2' の slug が名前と異なります
+  fix: 手動対応: ブランチを戻すか worktree を作り直す
+[t4] myrepo--ghost
+  種類: broken-worktree
+  内容: git が worktree として認識しません
+  fix: 手動対応: 不要なら削除し、必要なら ws worktree add で作り直す
+[t4] random-dir
+  種類: naming
+  内容: `<repo>--<slug>` 形式のディレクトリ名ではありません
+  fix: 手動対応: 名前を確認し、不要なら削除
+[t4] myrepo--d1
+  種類: broken-worktree
+  内容: git に登録されていますがディレクトリがありません: $WS_ROOT/tasks/t4/myrepo--d1
+  fix: git -C $WS_ROOT/repos/myrepo.git worktree prune
+[t4] other--d2
+  種類: broken-worktree
+  内容: git に登録されていますがディレクトリがありません: $WS_ROOT/tasks/t4/other--d2
+  fix: git -C $WS_ROOT/repos/other.git worktree prune
+
+7 件の問題
+-- want-workspace.txt --
+[t2] myrepo--c1
+  種類: dir-branch-mismatch
+  内容: 現在のブランチ 'other' の slug が名前と異なります
+  fix: 手動対応: ブランチを戻すか worktree を作り直す
+[t2] myrepo--c2
+  種類: dir-branch-mismatch
+  内容: detached HEAD です(作業用 worktree はブランチ固定)
+  fix: 手動対応: ブランチを checkout する
+[t3] _readonly/myrepo--b1
+  種類: readonly
+  内容: ブランチ 'tmpb' を checkout しています
+  fix: 手動対応: detached に戻す(git switch --detach)
+[t3] _readonly/myrepo--b1
+  種類: readonly
+  内容: origin に無いコミットが 1 件あります
+  fix: 手動対応: 内容を確認する
+[t3] _readonly/myrepo--b1
+  種類: readonly
+  内容: 未コミット変更があります
+  fix: 手動対応: 内容を確認する
+
+5 件の問題
