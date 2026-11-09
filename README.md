@@ -1,5 +1,62 @@
 # my-workspace-manager
 
+@ayame113の個人用git worktree管理ツールです。このツールは意見のある(Opinionated)ツールで、ディレクトリ構成は固定され、Mac OS専用で、Node.jsの使用に特化しています。
+
+## 概念
+
+- task: 作業スペースに相当する概念です。複数の worktree を持つことができます。`ws new <task>` で作成します。
+- worktree: task の中で、あるリポジトリの特定のブランチを参照する作業用のディレクトリです。`ws worktree add` で作成します。実態は git worktree です。
+
+```sh
+~/ws
+├── repos
+│   └── <repo>.git  # bare repo
+└── tasks
+    └── <task>
+        └── <worktree>  # 作業用 worktree
+```
+
+## インストール・アップデート
+
+```sh
+go install github.com/ayame113/my-workspace-manager/cmd/ws@latest
+```
+
+`$(go env GOPATH)/bin`をPATH に入れる必要があります。
+
+zshのシェル補完を利用する場合は以下を `~/.zshrc` に追加します。
+
+```sh
+source <(ws completion zsh)
+```
+
+## コマンド
+
+
+| コマンド | 内容 |
+| --- | --- |
+| `ws new [<task>] [--description <description>]` | task を作成します。 |
+| `ws clone <url> [<repo>]` | リポジトリを `repos/` に git clone します。 |
+| `ws ls [<単語>]` | task の一覧を表示します。単語を渡すと検索できます。 |
+| `ws open [<task>]` | task のディレクトリを [Zed](https://zed.dev) で開きます。 |
+| `ws describe` | task のdescriptionを表示します。 |
+| `ws describe <description>` | task の 1 行のdescriptionを設定します。`""` を渡すと設定されているdescriptionを削除します。AIエージェントはこのコマンドを通して現在の作業内容を記録し、後から検索することができます。 |
+| `ws lint` | 壊れた設定・壊れたディレクトリ構成を検出します。 |
+| `ws compact [--dry-run]` | 全 task の node_modules を APFS の clonefile を使って容量を削減します。 |
+| `ws worktree add [--repo <repo>] [--branch <branch>] [-c --base <start-point> \| --readonly]` | worktree を作成します。 |
+| `ws worktree rename [--repo <repo>] [--branch <old>] [--to <new>]` | worktree の名前を変更します。変更はディレクトリ名とブランチ名に反映されます。 |
+| `ws worktree ls` | task 内の worktree の一覧を表示します。 |
+| `ws worktree lint` | task 内の壊れた設定・壊れたディレクトリ構成を検出します。 |
+| `ws worktree pull` | task 内の各 worktree を pull してリモートに追従させます。 |
+| `ws skill install [claude\|codex]...` | wsコマンドの利用方法を説明した Agent Skill を追加します。 |
+| `ws completion [command]` | シェルコマンドの補完スクリプトを出力します。 |
+| `ws help` | コマンドのヘルプを表示します。 |
+
+
+-----------------------------
+
+↓↓↓↓ここから下はAIが記載↓↓↓↓
+
 git worktree をタスク単位で管理する個人用 CLI `ws` と、それを Claude Code や Codex から使うためのスキル(`skills/ws-task`)。
 
 `~/ws/repos/<repo>.git` に bare repo を置き、タスクごとのディレクトリ `~/ws/tasks/<task>/` に作業用 worktree(`<repo>--<branch-slug>`)と参照用の readonly worktree(`_readonly/`)を並べる。node_modules は普段どおり `npm ci` / `npm i` で用意し、容量が気になったら `ws compact` で worktree 間の同一ファイルを APFS の clonefile で共有して減らす。規約や運用の詳細は [skills/ws-task/SKILL.md](skills/ws-task/SKILL.md) を参照。
@@ -9,20 +66,6 @@ git worktree をタスク単位で管理する個人用 CLI `ws` と、それを
 - macOS 専用(`ws compact` が APFS の `clonefile(2)` を使うため)
 - git
 - Go 1.27 以上(ビルド時のみ)
-
-## インストール
-
-```sh
-go install github.com/ayame113/my-workspace-manager/cmd/ws@latest
-```
-
-`$(go env GOPATH)/bin`(既定は `~/go/bin`)に入るので、PATH に入れる。更新するときは同じコマンドを再実行する。
-
-シェル補完を使うなら、`~/.zshrc` に次を書く(bash / fish は `ws completion --help`)。サブコマンドとフラグに加え、`--task` / `--repo` / `--branch` / `--base` の値も補完する。
-
-```sh
-source <(ws completion zsh)
-```
 
 ### スキル
 
@@ -38,27 +81,11 @@ ws skill install          # 対話で選ぶ
 
 トップレベルは workspace 全体、`ws worktree` は task 内が対象。
 
-| コマンド | 内容 |
-| --- | --- |
-| `ws new [<task>] [--description <説明>]` | `tasks/<task>/` を作る。`--description` は新しく作ったときだけ書き込む。引数なしで対話可能なら、repo と task 名と説明を尋ねて worktree もまとめて作り、Zed で開くかも尋ねる |
-| `ws clone <url> [<repo>]` | bare repo を `repos/` に用意する |
-| `ws ls [<語>]` | 全 task の一覧(1 task 1 行。worktree 数、dirty 数、説明。最近作業した順)。語を渡すと task 名か説明に含むものだけにする(大文字小文字は区別しない)。端末から実行すると、一覧を文字入力で絞り込んで選び、その task のディレクトリを出力する |
-| `ws open [<task>]` | task のディレクトリを [Zed](https://zed.dev) で開く(`zed` コマンドが必要)。省略するとカレントディレクトリの task、task の外で対話できるなら一覧から選ぶ |
-| `ws describe [<説明>]` | task の 1 行の説明を書く(`""` で消す)。説明を省略すると表示し、対話できるなら今の説明を初期値にして編集する |
-| `ws lint` | workspace 全体の規約違反・壊れた worktree を検査する |
-| `ws compact [--dry-run]` | 全 task の node_modules 内の同一ファイルを clonefile で共有し、容量を減らす |
-| `ws worktree add [--repo <repo>] [--branch <branch>] [-c --base <start-point> \| --readonly]` | worktree を作る。足りない引数は対話で尋ねる |
-| `ws worktree rename [--repo <repo>] [--branch <old>] [--to <new>]` | 作業用 worktree のブランチ名を変える。slug が変わればディレクトリも移動する。足りない引数は対話で尋ねる |
-| `ws worktree ls` | task 内の worktree の一覧(作業用、readonly の順。それぞれ最近作業した順) |
-| `ws worktree lint` | task 内の規約違反・壊れた worktree を検査する |
-| `ws worktree pull` | fetch して task 内の worktree を fast-forward で追従させる |
-| `ws skill install [claude\|codex]...` | ws-task スキルをユーザー単位でインストール・更新する。引数なしなら対話で選ぶ |
-
 `ws worktree` 配下のコマンドは `--task <task>` を省略するとカレントディレクトリが属する task を使う。task の外で、対話可能なら一覧から選ばせる(`ls` / `lint` / `pull` も同じ)。詳しくは `ws --help` / `ws worktree --help` / `ws worktree <command> --help`。
 
-「最近作業した順」は、各 worktree の git の index と HEAD のログの更新日時で決める(add、commit、checkout、status などで更新される)。ファイルを編集しただけでは変わらない。worktree の無い task はディレクトリの更新日時を使う。対話で task を選ぶ一覧も同じ順で、説明も表示し、説明の語でも絞り込める。
+「最近作業した順」は、各 worktree の git の index と HEAD のログの更新日時で決める(add、commit、checkout、status などで更新される)。ファイルを編集しただけでは変わらない。worktree の無い task はディレクトリの更新日時を使う。対話で task を選ぶ一覧も同じ順で、descriptionも表示し、descriptionの語でも絞り込める。
 
-task の説明は `tasks/<task>/.ws-task.json` に JSON で保存する。ws は知らないキーを消さずに書き戻すので、将来キーが増えても古い ws で壊れない。ファイルには `ws describe` の使い方を `_comment` として書き込み、ファイルを開いたエージェントがコマンドを使うよう促す。エージェントには SKILL.md の規則で、説明が空なら書くよう指示している。
+task のdescriptionは `tasks/<task>/.ws-task.json` に JSON で保存する。ws は知らないキーを消さずに書き戻すので、将来キーが増えても古い ws で壊れない。ファイルには `ws describe` の使い方を `_comment` として書き込み、ファイルを開いたエージェントがコマンドを使うよう促す。エージェントには SKILL.md の規則で、descriptionが空なら書くよう指示している。
 
 `ws ls` は stdin と stderr が端末なら絞り込みの画面になり、そうでなければ(エージェント、スクリプト)一覧をそのまま出す。画面は stderr に描き、選んだ task のディレクトリだけを stdout に出すので、シェルで移動に使える。`~/.zshrc` に次を書けば `wcd` で絞り込んで移動できる(`wcd pay` のように語を渡すと、先に絞り込んだ状態で開く)。
 
@@ -74,14 +101,14 @@ wcd() { local dir; dir=$(ws ls "$@") && cd "$dir"; }
 
 ### 対話入力
 
-`ws new`(引数なし)、`ws worktree add`、`ws worktree rename`、`ws describe`(説明なし)、`ws skill install`(引数なし)は、必須の引数が足りないときに [huh](https://github.com/charmbracelet/huh) で対話的に尋ねる。部分的に指定した引数はそのまま使い、足りないものだけを尋ねる。
+`ws new`(引数なし)、`ws worktree add`、`ws worktree rename`、`ws describe`(descriptionなし)、`ws skill install`(引数なし)は、必須の引数が足りないときに [huh](https://github.com/charmbracelet/huh) で対話的に尋ねる。部分的に指定した引数はそのまま使い、足りないものだけを尋ねる。
 
 - 対話は stdin と stderr の両方が端末のときだけ出る。それ以外(パイプ、スクリプト、エージェント)では、足りない引数は使い方の誤り(終了コード 2)になる。
 - `add`: task(カレントディレクトリから決まらなければ一覧から)→ repo(`repos/*.git`)→ 種類(既存ブランチ / 新規ブランチ / readonly)→ ブランチ。既存ブランチはローカルと origin のブランチから絞り込みで選ぶ。新規ブランチは名前(`git check-ref-format` で検証)と起点(origin のブランチ。既定は `origin/HEAD`、無ければ `origin/main`)を尋ねる。
 - `rename`: task 内の作業用 worktree から選び、新しいブランチ名を入力する(初期値は現在の名前)。
 - `add` の新規ブランチ名の初期値は、ローカルにも origin にも無いランダムな名前(`brave-otter` のような `<形容詞>-<名詞>`)。Enter だけで採用できる。`rename` の初期値は現在の名前のまま。
-- `ws worktree ls` / `lint` / `pull`: `--task` を省略して task の外にいるときは、task 一覧から絞り込みで選ぶ。task が 1 つも無ければ、選ばせずにエラーにする。`pull` のエージェント拒否は task の解決より先に行う。
-- `ws new`(引数なし): repo を複数選ぶ(0 個でもよい。repo が無ければこの手順は出ない)→ task 名と説明(空でもよい)を入力し、作成後に Zed で開くかを選ぶ(既定は開く)。task 名の初期値は `<repo 名>-<形容詞>-<名詞>`。repo 名は小文字化して `[a-z0-9]` 以外の連続をハイフン 1 つにし、複数選んだときは共通する先頭の語を 1 回だけ書いて残りを続ける(`app-web` と `app-api` なら `app-web-api-<形容詞>-<名詞>`)。repo を選ばなければ `<形容詞>-<名詞>`。既存の task と重ならない名前になる。
+- `ws worktree ls` / `lint` / `pull`: `--task` を省略して task の外にいるときは、task 一覧から絞り込みで選ぶ。task が 1 つも無ければ、選ばせずにエラーにする。
+- `ws new`(引数なし): repo を複数選ぶ(0 個でもよい。repo が無ければこの手順は出ない)→ task 名とdescription(空でもよい)を入力し、作成後に Zed で開くかを選ぶ(既定は開く)。task 名の初期値は `<repo 名>-<形容詞>-<名詞>`。repo 名は小文字化して `[a-z0-9]` 以外の連続をハイフン 1 つにし、複数選んだときは共通する先頭の語を 1 回だけ書いて残りを続ける(`app-web` と `app-api` なら `app-web-api-<形容詞>-<名詞>`)。repo を選ばなければ `<形容詞>-<名詞>`。既存の task と重ならない名前になる。
   - 選んだ各 repo に、新規ブランチで作業用 worktree を作る(`worktree add --create` 相当)。ブランチ名は尋ねず、全 repo 共通のランダムな名前(どの repo のローカルにも origin にも無いもの)。起点は `origin/HEAD`、無ければ `origin/main`(どちらも無い repo があれば、何も作らずエラー)。
   - 途中の worktree 作成に失敗したら、作成済みのものは残し、どこまでできたかを表示して終了コード 1 にする。
   - `ws new <task>` のように引数を渡したときは、従来どおり task を作るだけで対話しない。対話できない環境で引数が無ければ終了コード 2。
