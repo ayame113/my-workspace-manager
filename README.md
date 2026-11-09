@@ -43,7 +43,7 @@ source <(ws completion zsh)
 | `ws describe <description>` | task の 1 行のdescriptionを設定します。`""` を渡すと設定されているdescriptionを削除します。AIエージェントはこのコマンドを通して現在の作業内容を記録し、後から検索することができます。 |
 | `ws lint` | 壊れた設定・壊れたディレクトリ構成を検出します。 |
 | `ws compact [--dry-run]` | 全 task の node_modules を APFS の clonefile を使って容量を削減します。 |
-| `ws worktree add [--repo <repo>] [--branch <branch>] [-c --base <start-point> \| --readonly]` | worktree を作成します。 |
+| `ws worktree add [--repo <repo>] [--branch <branch>] [-c --base <start-point> \| --readonly]` | worktree を作成します。git worktreeには1つのブランチを複数のworktreeで同時にチェックアウトできないという制約がありますが、この制約は`--readonly`フラグを付与することで回避できます。 |
 | `ws worktree rename [--repo <repo>] [--branch <old>] [--to <new>]` | worktree の名前を変更します。変更はディレクトリ名とブランチ名に反映されます。 |
 | `ws worktree ls` | task 内の worktree の一覧を表示します。 |
 | `ws worktree lint` | task 内の壊れた設定・壊れたディレクトリ構成を検出します。 |
