@@ -188,12 +188,12 @@ func TestChooseTaskListsNewestFirst(t *testing.T) {
 }
 
 func TestNewAdoptsRandomTaskNameOnEnter(t *testing.T) {
-	p := newPrompter(t, strings.NewReader("\r\r"))
+	p := newPrompter(t, strings.NewReader("\r\r\r"))
 	got, err := p.New(testContext(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Task != randomName() || len(got.Repos) != 0 {
+	if got.Task != randomName() || len(got.Repos) != 0 || !got.Open {
 		t.Errorf("got %+v, want task %q and no repos", got, randomName())
 	}
 }
@@ -217,7 +217,7 @@ func TestNewAsksReposThenTaskNameWithRepoPrefix(t *testing.T) {
 	go func() {
 		writer.WriteString(" \r")
 		time.Sleep(500 * time.Millisecond)
-		writer.WriteString("\r\r")
+		writer.WriteString("\r\r\r")
 	}()
 	got, err := p.New(testContext(t))
 	if err != nil {
@@ -238,7 +238,7 @@ func TestNewRegeneratesCollidingInitialTaskName(t *testing.T) {
 		}
 		return 1
 	}
-	p, root := newPrompterWithIntN(t, strings.NewReader("\r\r"), intn)
+	p, root := newPrompterWithIntN(t, strings.NewReader("\r\r\r"), intn)
 	if err := os.MkdirAll(root+"/tasks/"+randomName(), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -301,5 +301,30 @@ func TestPickTaskFiltersByTypedText(t *testing.T) {
 	}
 	if got != "beta" {
 		t.Errorf("got %q", got)
+	}
+}
+
+func TestNewCanDeclineOpening(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		reader.Close()
+		writer.Close()
+	})
+	p := newPrompter(t, reader)
+	// 確認欄にフォーカスが移る前に n を送ると、説明欄の入力として読まれる
+	go func() {
+		writer.WriteString("\r\r")
+		time.Sleep(500 * time.Millisecond)
+		writer.WriteString("n\r")
+	}()
+	got, err := p.New(testContext(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Open {
+		t.Error("want Open to be false")
 	}
 }

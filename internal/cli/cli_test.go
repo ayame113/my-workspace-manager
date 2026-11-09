@@ -51,7 +51,7 @@ type fakePrompter struct {
 	chooseTaskCalls int
 	chooseTaskOut   string
 	newCalls        int
-	newOut          app.NewTaskOptions
+	newOut          prompt.NewTaskAnswers
 
 	skillTargetCalls int
 	skillTargetsOut  []string
@@ -68,7 +68,7 @@ func (p *fakePrompter) ChooseTask(ctx context.Context) (string, error) {
 	return p.chooseTaskOut, p.err
 }
 
-func (p *fakePrompter) New(ctx context.Context) (app.NewTaskOptions, error) {
+func (p *fakePrompter) New(ctx context.Context) (prompt.NewTaskAnswers, error) {
 	p.newCalls++
 	return p.newOut, p.err
 }
@@ -102,6 +102,7 @@ type harness struct {
 	root     string
 	git      *fakeGit
 	prompter *fakePrompter
+	opened   []string
 	stdout   bytes.Buffer
 	stderr   bytes.Buffer
 	env      cli.Env
@@ -145,6 +146,10 @@ func newHarness(t *testing.T, opts envOptions) *harness {
 		StderrIsTerminal: opts.tty,
 		Git:              h.git,
 		Prompter:         h.prompter,
+		OpenEditor: func(ctx context.Context, dir string) error {
+			h.opened = append(h.opened, dir)
+			return nil
+		},
 	}
 	return h
 }
@@ -347,7 +352,7 @@ func TestNewInteractive(t *testing.T) {
 	t.Run("creates the task and a worktree per repo", func(t *testing.T) {
 		t.Parallel()
 		h := newHarness(t, envOptions{tty: true})
-		h.prompter.newOut = app.NewTaskOptions{Task: "t3", Repos: []string{"r"}}
+		h.prompter.newOut = prompt.NewTaskAnswers{NewTaskOptions: app.NewTaskOptions{Task: "t3", Repos: []string{"r"}}}
 		if got := h.run("new"); got != 0 {
 			t.Fatalf("exit code = %d\nstderr: %s", got, h.stderr.String())
 		}
@@ -369,7 +374,7 @@ func TestNewInteractive(t *testing.T) {
 	t.Run("no repo creates only the task", func(t *testing.T) {
 		t.Parallel()
 		h := newHarness(t, envOptions{tty: true})
-		h.prompter.newOut = app.NewTaskOptions{Task: "t3"}
+		h.prompter.newOut = prompt.NewTaskAnswers{NewTaskOptions: app.NewTaskOptions{Task: "t3"}}
 		if got := h.run("new"); got != 0 {
 			t.Fatalf("exit code = %d\nstderr: %s", got, h.stderr.String())
 		}
@@ -388,7 +393,7 @@ func TestNewInteractive(t *testing.T) {
 			t.Fatal(err)
 		}
 		h.git.failWorktreeAddIn = "r2.git"
-		h.prompter.newOut = app.NewTaskOptions{Task: "t3", Repos: []string{"r", "r2"}}
+		h.prompter.newOut = prompt.NewTaskAnswers{NewTaskOptions: app.NewTaskOptions{Task: "t3", Repos: []string{"r", "r2"}}}
 		if got := h.run("new"); got != 1 {
 			t.Fatalf("exit code = %d, want 1", got)
 		}
@@ -564,5 +569,67 @@ func TestLsInteractiveWithoutMatchFails(t *testing.T) {
 	}
 	if h.prompter.pickChoices != nil {
 		t.Error("prompter must not be called")
+	}
+}
+
+func TestOpen(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		env        envOptions
+		args       []string
+		chosen     string
+		wantCode   int
+		wantOpened string
+	}{
+		{"task given", envOptions{}, []string{"open", "t2"}, "", 0, "tasks/t2"},
+		{"current task", envOptions{cwd: "tasks/t1"}, []string{"open"}, "", 0, "tasks/t1"},
+		{"chosen outside a task", envOptions{tty: true}, []string{"open"}, "t2", 0, "tasks/t2"},
+		{"outside a task without a terminal", envOptions{}, []string{"open"}, "", 1, ""},
+		{"unknown task", envOptions{}, []string{"open", "nope"}, "", 1, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newHarness(t, tt.env)
+			h.prompter.chooseTaskOut = tt.chosen
+			if got := h.run(tt.args...); got != tt.wantCode {
+				t.Fatalf("exit code = %d, want %d\nstderr: %s", got, tt.wantCode, h.stderr.String())
+			}
+			var want []string
+			if tt.wantOpened != "" {
+				want = []string{filepath.Join(h.root, tt.wantOpened)}
+			}
+			if !slices.Equal(h.opened, want) {
+				t.Errorf("opened = %q, want %q", h.opened, want)
+			}
+		})
+	}
+}
+
+func TestNewInteractiveOpensWhenAsked(t *testing.T) {
+	t.Parallel()
+	for _, open := range []bool{true, false} {
+		h := newHarness(t, envOptions{tty: true})
+		h.prompter.newOut = prompt.NewTaskAnswers{NewTaskOptions: app.NewTaskOptions{Task: "t3"}, Open: open}
+		if got := h.run("new"); got != 0 {
+			t.Fatalf("exit code = %d\nstderr: %s", got, h.stderr.String())
+		}
+		if opened := len(h.opened) == 1 && h.opened[0] == filepath.Join(h.root, "tasks/t3"); opened != open {
+			t.Errorf("open=%v: opened = %q", open, h.opened)
+		}
+	}
+}
+
+func TestNewInteractiveDoesNotOpenAfterFailure(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, envOptions{tty: true})
+	h.git.failWorktreeAddIn = "r.git"
+	h.prompter.newOut = prompt.NewTaskAnswers{NewTaskOptions: app.NewTaskOptions{Task: "t3", Repos: []string{"r"}}, Open: true}
+	if got := h.run("new"); got != 1 {
+		t.Fatalf("exit code = %d\nstderr: %s", got, h.stderr.String())
+	}
+	if len(h.opened) != 0 {
+		t.Errorf("opened = %q", h.opened)
 	}
 }

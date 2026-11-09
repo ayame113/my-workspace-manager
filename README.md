@@ -40,9 +40,10 @@ ws skill install          # 対話で選ぶ
 
 | コマンド | 内容 |
 | --- | --- |
-| `ws new [<task>] [--description <説明>]` | `tasks/<task>/` を作る。`--description` は新しく作ったときだけ書き込む。引数なしで対話可能なら、repo と task 名と説明を尋ねて worktree もまとめて作る |
+| `ws new [<task>] [--description <説明>]` | `tasks/<task>/` を作る。`--description` は新しく作ったときだけ書き込む。引数なしで対話可能なら、repo と task 名と説明を尋ねて worktree もまとめて作り、Zed で開くかも尋ねる |
 | `ws clone <url> [<repo>]` | bare repo を `repos/` に用意する |
 | `ws ls [<語>]` | 全 task の一覧(1 task 1 行。worktree 数、dirty 数、説明。最近作業した順)。語を渡すと task 名か説明に含むものだけにする(大文字小文字は区別しない)。端末から実行すると、一覧を文字入力で絞り込んで選び、その task のディレクトリを出力する |
+| `ws open [<task>]` | task のディレクトリを [Zed](https://zed.dev) で開く(`zed` コマンドが必要)。省略するとカレントディレクトリの task、task の外で対話できるなら一覧から選ぶ |
 | `ws describe [<説明>]` | task の 1 行の説明を書く(`""` で消す)。説明を省略すると表示し、対話できるなら今の説明を初期値にして編集する |
 | `ws lint` | workspace 全体の規約違反・壊れた worktree を検査する |
 | `ws compact [--dry-run]` | 全 task の node_modules 内の同一ファイルを clonefile で共有し、容量を減らす |
@@ -80,7 +81,7 @@ wcd() { local dir; dir=$(ws ls "$@") && cd "$dir"; }
 - `rename`: task 内の作業用 worktree から選び、新しいブランチ名を入力する(初期値は現在の名前)。
 - `add` の新規ブランチ名の初期値は、ローカルにも origin にも無いランダムな名前(`brave-otter` のような `<形容詞>-<名詞>`)。Enter だけで採用できる。`rename` の初期値は現在の名前のまま。
 - `ws worktree ls` / `lint` / `pull`: `--task` を省略して task の外にいるときは、task 一覧から絞り込みで選ぶ。task が 1 つも無ければ、選ばせずにエラーにする。`pull` のエージェント拒否は task の解決より先に行う。
-- `ws new`(引数なし): repo を複数選ぶ(0 個でもよい。repo が無ければこの手順は出ない)→ task 名と説明(空でもよい)を入力する。task 名の初期値は `<repo 名>-<形容詞>-<名詞>`。repo 名は小文字化して `[a-z0-9]` 以外の連続をハイフン 1 つにし、複数選んだときは共通する先頭の語を 1 回だけ書いて残りを続ける(`app-web` と `app-api` なら `app-web-api-<形容詞>-<名詞>`)。repo を選ばなければ `<形容詞>-<名詞>`。既存の task と重ならない名前になる。
+- `ws new`(引数なし): repo を複数選ぶ(0 個でもよい。repo が無ければこの手順は出ない)→ task 名と説明(空でもよい)を入力し、作成後に Zed で開くかを選ぶ(既定は開く)。task 名の初期値は `<repo 名>-<形容詞>-<名詞>`。repo 名は小文字化して `[a-z0-9]` 以外の連続をハイフン 1 つにし、複数選んだときは共通する先頭の語を 1 回だけ書いて残りを続ける(`app-web` と `app-api` なら `app-web-api-<形容詞>-<名詞>`)。repo を選ばなければ `<形容詞>-<名詞>`。既存の task と重ならない名前になる。
   - 選んだ各 repo に、新規ブランチで作業用 worktree を作る(`worktree add --create` 相当)。ブランチ名は尋ねず、全 repo 共通のランダムな名前(どの repo のローカルにも origin にも無いもの)。起点は `origin/HEAD`、無ければ `origin/main`(どちらも無い repo があれば、何も作らずエラー)。
   - 途中の worktree 作成に失敗したら、作成済みのものは残し、どこまでできたかを表示して終了コード 1 にする。
   - `ws new <task>` のように引数を渡したときは、従来どおり task を作るだけで対話しない。対話できない環境で引数が無ければ終了コード 2。

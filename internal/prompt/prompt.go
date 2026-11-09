@@ -139,34 +139,45 @@ func (p *Prompter) PickTask(ctx context.Context, choices []Choice) (string, erro
 	return chosen, nil
 }
 
-// New asks for the repos to create worktrees in (none is allowed), then for a task name.
-func (p *Prompter) New(ctx context.Context) (app.NewTaskOptions, error) {
+// NewTaskAnswers is what the user chose for `ws new`.
+type NewTaskAnswers struct {
+	app.NewTaskOptions
+	Open bool
+}
+
+// New asks for the repos to create worktrees in (none is allowed), then for a task name, a description
+// and whether to open the task in the editor.
+func (p *Prompter) New(ctx context.Context) (NewTaskAnswers, error) {
 	repos, err := p.app.RepoNames()
 	if err != nil {
-		return app.NewTaskOptions{}, err
+		return NewTaskAnswers{}, err
 	}
 	var chosen []string
 	if len(repos) > 0 {
 		chosen, err = p.chooseMany(ctx, "worktree を作る repo(Space で選択、何も選ばなければ task だけ作る)", repos)
 		if err != nil {
-			return app.NewTaskOptions{}, err
+			return NewTaskAnswers{}, err
 		}
 	}
 	initial, err := p.app.RandomTaskName(chosen)
 	if err != nil {
-		return app.NewTaskOptions{}, err
+		return NewTaskAnswers{}, err
 	}
-	task, description := initial, ""
+	task, description, open := initial, "", true
 	err = p.run(ctx,
 		huh.NewInput().Title("task 名").Value(&task).Validate(func(name string) error {
 			return p.app.ValidateNewTaskName(strings.TrimSpace(name))
 		}),
 		huh.NewInput().Title("説明(1 行、空でもよい)").Value(&description),
+		huh.NewConfirm().Title("作成後に zed で開く").Affirmative("開く").Negative("開かない").Value(&open),
 	)
 	if err != nil {
-		return app.NewTaskOptions{}, err
+		return NewTaskAnswers{}, err
 	}
-	return app.NewTaskOptions{Task: strings.TrimSpace(task), Repos: chosen, Description: description}, nil
+	return NewTaskAnswers{
+		NewTaskOptions: app.NewTaskOptions{Task: strings.TrimSpace(task), Repos: chosen, Description: description},
+		Open:           open,
+	}, nil
 }
 
 // Describe asks for a task's description, starting from the current one.

@@ -65,6 +65,7 @@ go install github.com/ayame113/my-workspace-manager/cmd/ws@latest
 ws new <task> --description "<説明>"      # tasks/<task>/ を作成し説明を書く(既存なら何もせず成功し、説明も変えない)。引数なしの対話での一括作成は人間専用
 ws clone <url> [<repo>]                    # 【ユーザーが実行】bare repo を repos/ に用意
 ws ls [<語>]                               # 全 task の一覧(1 task 1 行、最近作業した順、説明つき)。語を渡すと task 名か説明に含むものだけ(人間が端末で実行すると絞り込みの画面になる)
+ws open [<task>]                           # task のディレクトリを Zed で開く。ユーザーに頼まれたときだけ実行する
 ws describe [--task <task>] ["<説明>"]     # task の 1 行の説明を書く("" で消す)。説明を省略すると今の説明を表示する
 ws lint                                    # workspace 全体の規約違反・壊れた worktree を検査する
 ws compact [--dry-run]                     # 全 task の node_modules 内の同一ファイルを clonefile で共有し、容量を減らす

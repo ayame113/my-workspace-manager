@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"slices"
 	"strings"
 
@@ -32,6 +34,7 @@ func (r *runner) rootCommand() *cobra.Command {
 		r.cloneCommand(),
 		r.lsCommand(),
 		r.describeCommand(),
+		r.openCommand(),
 		r.lintCommand(),
 		r.compactCommand(),
 		r.worktreeCommand(),
@@ -123,7 +126,10 @@ func (r *runner) runNewInteractive(cmd *cobra.Command) error {
 		fmt.Fprintf(r.env.Stderr, "作成済みのものは残しています(%d / %d repo)\n", len(result.Worktrees), len(chosen.Repos))
 		return exitError{ExitFailure}
 	}
-	return err
+	if err != nil || !chosen.Open {
+		return err
+	}
+	return r.openTask(cmd, chosen.Task)
 }
 
 func (r *runner) cloneCommand() *cobra.Command {
@@ -519,5 +525,54 @@ func (r *runner) pickTask(cmd *cobra.Command, tasks []app.TaskSummary) error {
 		return err
 	}
 	r.printf("%s\n", r.app.TaskDir(chosen))
+	return nil
+}
+
+func (r *runner) openCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "open [<task>]",
+		Short: "task のディレクトリを zed で開く(省略するとカレントディレクトリの task。task の外なら対話で選ぶ)",
+		Args:  cobra.MaximumNArgs(1),
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
+			if len(args) > 0 {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			return r.completeTasks(cmd, args, toComplete)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			task := ""
+			if len(args) == 1 {
+				task = args[0]
+			}
+			resolved, err := r.resolveTaskOrChoose(cmd, task)
+			if err != nil {
+				return err
+			}
+			return r.openTask(cmd, resolved)
+		},
+	}
+}
+
+func (r *runner) openTask(cmd *cobra.Command, task string) error {
+	dir := r.app.TaskDir(task)
+	open := r.env.OpenEditor
+	if open == nil {
+		open = openInZed
+	}
+	if err := open(cmd.Context(), dir); err != nil {
+		return err
+	}
+	r.printf("zed で開きました: %s\n", dir)
+	return nil
+}
+
+func openInZed(ctx context.Context, dir string) error {
+	zed := exec.CommandContext(ctx, "zed", dir)
+	if out, err := zed.CombinedOutput(); err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return errors.New("zed が見つかりません。Zed の CLI(zed コマンド)をインストールしてください")
+		}
+		return fmt.Errorf("zed を起動できません: %w\n%s", err, out)
+	}
 	return nil
 }

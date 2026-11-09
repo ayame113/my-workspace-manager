@@ -36,6 +36,8 @@ type Env struct {
 	Git              gitexec.Runner
 	// Prompter が nil なら、対話が必要なときに huh で実装したものを使う
 	Prompter Prompter
+	// OpenEditor が nil なら zed で開く
+	OpenEditor func(ctx context.Context, dir string) error
 }
 
 func OSEnv() Env {
@@ -53,7 +55,7 @@ func OSEnv() Env {
 
 type Prompter interface {
 	ChooseTask(ctx context.Context) (string, error)
-	New(ctx context.Context) (app.NewTaskOptions, error)
+	New(ctx context.Context) (prompt.NewTaskAnswers, error)
 	Add(ctx context.Context, partial app.AddOptions) (app.AddOptions, error)
 	Rename(ctx context.Context, partial app.RenameOptions) (app.RenameOptions, error)
 	ChooseSkillTargets(ctx context.Context) ([]string, error)
