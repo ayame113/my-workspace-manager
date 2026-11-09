@@ -58,6 +58,7 @@ type Prompter interface {
 	Rename(ctx context.Context, partial app.RenameOptions) (app.RenameOptions, error)
 	ChooseSkillTargets(ctx context.Context) ([]string, error)
 	Describe(ctx context.Context, task, current string) (string, error)
+	PickTask(ctx context.Context, choices []prompt.Choice) (string, error)
 }
 
 type usageError struct{ error }

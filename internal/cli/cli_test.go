@@ -58,6 +58,9 @@ type fakePrompter struct {
 
 	describeCalls []string
 	describeOut   string
+
+	pickChoices []prompt.Choice
+	pickOut     string
 }
 
 func (p *fakePrompter) ChooseTask(ctx context.Context) (string, error) {
@@ -78,6 +81,11 @@ func (p *fakePrompter) ChooseSkillTargets(ctx context.Context) ([]string, error)
 func (p *fakePrompter) Describe(ctx context.Context, task, current string) (string, error) {
 	p.describeCalls = append(p.describeCalls, current)
 	return p.describeOut, p.err
+}
+
+func (p *fakePrompter) PickTask(ctx context.Context, choices []prompt.Choice) (string, error) {
+	p.pickChoices = choices
+	return p.pickOut, p.err
 }
 
 func (p *fakePrompter) Add(ctx context.Context, partial app.AddOptions) (app.AddOptions, error) {
@@ -512,5 +520,49 @@ func TestDescribePromptsFromCurrentDescription(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(h.root, "tasks/t1/.ws-task.json"))
 	if err != nil || !strings.Contains(string(data), `"edited"`) {
 		t.Errorf("stored = %s, %v", data, err)
+	}
+}
+
+func TestLsInteractivePrintsChosenTaskDir(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, envOptions{tty: true})
+	if got := h.run("describe", "--task", "t2", "Payment page"); got != 0 {
+		t.Fatalf("exit code = %d\nstderr: %s", got, h.stderr.String())
+	}
+	h.stdout.Reset()
+	h.prompter.pickOut = "t2"
+	if got := h.run("ls", "payment"); got != 0 {
+		t.Fatalf("exit code = %d\nstderr: %s", got, h.stderr.String())
+	}
+	if len(h.prompter.pickChoices) != 1 || h.prompter.pickChoices[0].Value != "t2" || !strings.Contains(h.prompter.pickChoices[0].Label, "Payment page") {
+		t.Errorf("choices = %+v", h.prompter.pickChoices)
+	}
+	if got, want := h.stdout.String(), filepath.Join(h.root, "tasks/t2")+"\n"; got != want {
+		t.Errorf("stdout = %q, want %q", got, want)
+	}
+}
+
+func TestLsWithoutTerminalPrintsList(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, envOptions{})
+	if got := h.run("ls"); got != 0 {
+		t.Fatalf("exit code = %d\nstderr: %s", got, h.stderr.String())
+	}
+	if h.prompter.pickChoices != nil {
+		t.Error("prompter must not be called")
+	}
+	if lines := strings.Split(strings.TrimSpace(h.stdout.String()), "\n"); len(lines) != 2 {
+		t.Errorf("stdout = %q", h.stdout.String())
+	}
+}
+
+func TestLsInteractiveWithoutMatchFails(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, envOptions{tty: true})
+	if got := h.run("ls", "zzz"); got != 1 {
+		t.Errorf("exit code = %d, want 1", got)
+	}
+	if h.prompter.pickChoices != nil {
+		t.Error("prompter must not be called")
 	}
 }

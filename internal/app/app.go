@@ -70,6 +70,9 @@ func (a *App) taskFromCwd() (string, error) {
 	return task, nil
 }
 
+// TaskDir returns the directory of task, whether or not it exists.
+func (a *App) TaskDir(task string) string { return a.layout.TaskDir(task) }
+
 // ResolveTask resolves a --task value. An empty value or "." means the task containing the current directory.
 // A *OutsideTaskError is returned when that fails.
 func (a *App) ResolveTask(task string) (string, error) {

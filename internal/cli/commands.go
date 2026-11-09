@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/ayame113/my-workspace-manager/internal/app"
+	"github.com/ayame113/my-workspace-manager/internal/prompt"
 )
 
 const taskFlagUsage = "対象の task。省略するとカレントディレクトリが属する task(. も同じ)"
@@ -148,7 +149,7 @@ func (r *runner) cloneCommand() *cobra.Command {
 func (r *runner) lsCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "ls [<語>]",
-		Short: "全 task の一覧(1 task 1 行、最近作業した順)。語を渡すと task 名か説明に含むものだけ",
+		Short: "全 task の一覧(1 task 1 行、最近作業した順)。語を渡すと task 名か説明に含むものだけ。端末からは文字入力で絞り込んで選び、その task のディレクトリを出力する",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			tasks, err := r.app.ListTasks(cmd.Context())
@@ -159,6 +160,9 @@ func (r *runner) lsCommand() *cobra.Command {
 				tasks = slices.DeleteFunc(tasks, func(task app.TaskSummary) bool {
 					return !containsFold(task.Name+" "+task.Description, args[0])
 				})
+			}
+			if r.interactive() {
+				return r.pickTask(cmd, tasks)
 			}
 			r.printTasks(tasks)
 			return nil
@@ -498,5 +502,22 @@ func (r *runner) setDescription(task, description string) error {
 	} else {
 		r.printf("task '%s' の説明: %s\n", task, stored)
 	}
+	return nil
+}
+
+func (r *runner) pickTask(cmd *cobra.Command, tasks []app.TaskSummary) error {
+	if len(tasks) == 0 {
+		return errors.New("該当する task がありません")
+	}
+	rows := taskRows(tasks)
+	choices := make([]prompt.Choice, len(tasks))
+	for i, task := range tasks {
+		choices[i] = prompt.Choice{Label: rows[i], Value: task.Name}
+	}
+	chosen, err := r.prompter().PickTask(cmd.Context(), choices)
+	if err != nil {
+		return err
+	}
+	r.printf("%s\n", r.app.TaskDir(chosen))
 	return nil
 }

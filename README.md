@@ -42,7 +42,7 @@ ws skill install          # 対話で選ぶ
 | --- | --- |
 | `ws new [<task>] [--description <説明>]` | `tasks/<task>/` を作る。`--description` は新しく作ったときだけ書き込む。引数なしで対話可能なら、repo と task 名と説明を尋ねて worktree もまとめて作る |
 | `ws clone <url> [<repo>]` | bare repo を `repos/` に用意する |
-| `ws ls [<語>]` | 全 task の一覧(1 task 1 行。worktree 数、dirty 数、説明。最近作業した順)。語を渡すと task 名か説明に含むものだけを出す(大文字小文字は区別しない) |
+| `ws ls [<語>]` | 全 task の一覧(1 task 1 行。worktree 数、dirty 数、説明。最近作業した順)。語を渡すと task 名か説明に含むものだけにする(大文字小文字は区別しない)。端末から実行すると、一覧を文字入力で絞り込んで選び、その task のディレクトリを出力する |
 | `ws describe [<説明>]` | task の 1 行の説明を書く(`""` で消す)。説明を省略すると表示し、対話できるなら今の説明を初期値にして編集する |
 | `ws lint` | workspace 全体の規約違反・壊れた worktree を検査する |
 | `ws compact [--dry-run]` | 全 task の node_modules 内の同一ファイルを clonefile で共有し、容量を減らす |
@@ -58,6 +58,12 @@ ws skill install          # 対話で選ぶ
 「最近作業した順」は、各 worktree の git の index と HEAD のログの更新日時で決める(add、commit、checkout、status などで更新される)。ファイルを編集しただけでは変わらない。worktree の無い task はディレクトリの更新日時を使う。対話で task を選ぶ一覧も同じ順で、説明も表示し、説明の語でも絞り込める。
 
 task の説明は `tasks/<task>/.ws-task.json` に JSON で保存する。ws は知らないキーを消さずに書き戻すので、将来キーが増えても古い ws で壊れない。ファイルには `ws describe` の使い方を `_comment` として書き込み、ファイルを開いたエージェントがコマンドを使うよう促す。エージェントには SKILL.md の規則で、説明が空なら書くよう指示している。
+
+`ws ls` は stdin と stderr が端末なら絞り込みの画面になり、そうでなければ(エージェント、スクリプト)一覧をそのまま出す。画面は stderr に描き、選んだ task のディレクトリだけを stdout に出すので、シェルで移動に使える。`~/.zshrc` に次を書けば `wcd` で絞り込んで移動できる(`wcd pay` のように語を渡すと、先に絞り込んだ状態で開く)。
+
+```sh
+wcd() { local dir; dir=$(ws ls "$@") && cd "$dir"; }
+```
 
 `ws lint` は全 task の検査に加え、git に登録されているがディレクトリが無いもののうち、どの task にも属さないものも報告する。`ws worktree lint` は指定した task の分だけを報告する。lint は報告だけで修正はしない。直せるものには、実行すべき git コマンドを `fix:` に表示する。
 

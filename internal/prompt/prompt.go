@@ -103,17 +103,32 @@ func (p *Prompter) ChooseTask(ctx context.Context) (string, error) {
 	if len(tasks) == 0 {
 		return "", errors.New("task がありません。先に 'ws new' を実行してください")
 	}
-	options := make([]huh.Option[string], len(tasks))
+	choices := make([]Choice, len(tasks))
 	for i, task := range tasks {
 		label := task
 		if description, err := p.app.Description(task); err == nil && description != "" {
 			label += "  " + description
 		}
-		options[i] = huh.NewOption(label, task)
+		choices[i] = Choice{Label: label, Value: task}
+	}
+	return p.PickTask(ctx, choices)
+}
+
+// Choice is one option whose label is shown and matched by the filter, and whose value is returned.
+type Choice struct {
+	Label string
+	Value string
+}
+
+// PickTask lets the user narrow the choices by typing any part of a label and returns the chosen value.
+func (p *Prompter) PickTask(ctx context.Context, choices []Choice) (string, error) {
+	options := make([]huh.Option[string], len(choices))
+	for i, c := range choices {
+		options[i] = huh.NewOption(c.Label, c.Value)
 	}
 	var chosen string
 	field := huh.NewSelect[string]().
-		Title("task(説明でも絞り込める)").
+		Title("task(文字を打つと task 名や説明で絞り込める)").
 		Options(options...).
 		Filtering(true).
 		Height(selectHeight).

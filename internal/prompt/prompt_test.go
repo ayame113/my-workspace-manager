@@ -289,3 +289,17 @@ func TestDescribeStartsFromCurrent(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestPickTaskFiltersByTypedText(t *testing.T) {
+	p := newPrompter(t, strings.NewReader("PAY\r"))
+	got, err := p.PickTask(testContext(t), []Choice{
+		{Label: "alpha   1 worktrees   clean   docs", Value: "alpha"},
+		{Label: "beta    0 worktrees   clean   payment page", Value: "beta"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "beta" {
+		t.Errorf("got %q", got)
+	}
+}

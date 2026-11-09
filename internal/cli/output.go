@@ -16,6 +16,13 @@ func (r *runner) printNewTask(result app.NewTaskWithWorktreesResult) {
 }
 
 func (r *runner) printTasks(tasks []app.TaskSummary) {
+	for _, row := range taskRows(tasks) {
+		r.printf("%s\n", row)
+	}
+}
+
+// taskRows formats one aligned line per task, in the order given.
+func taskRows(tasks []app.TaskSummary) []string {
 	type row struct{ name, count, state, description string }
 	rows := make([]row, 0, len(tasks))
 	nameWidth, countWidth, stateWidth := 0, 0, 0
@@ -33,10 +40,12 @@ func (r *runner) printTasks(tasks []app.TaskSummary) {
 		countWidth = max(countWidth, utf8.RuneCountInString(count))
 		stateWidth = max(stateWidth, utf8.RuneCountInString(state))
 	}
-	for _, row := range rows {
+	lines := make([]string, len(rows))
+	for i, row := range rows {
 		line := fmt.Sprintf("%-*s%-*s%-*s%s", nameWidth+3, row.name, countWidth+3, row.count, stateWidth+3, row.state, row.description)
-		r.printf("%s\n", strings.TrimRight(line, " "))
+		lines[i] = strings.TrimRight(line, " ")
 	}
+	return lines
 }
 
 func (r *runner) printWorktrees(entries []app.WorktreeEntry) {
